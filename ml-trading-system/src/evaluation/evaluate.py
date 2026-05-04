@@ -31,7 +31,12 @@ def evaluate():
     input_dim = X.shape[2]
 
     model = LSTMPolicy(input_dim)
-    model.load_state_dict(torch.load("models/ppo_lstm.pth"))
+    try:
+        model.load_state_dict(torch.load("models/best_model.pth", weights_only=True))
+        print("✅ Loaded best_model.pth")
+    except:
+        model.load_state_dict(torch.load("models/ppo_lstm.pth", weights_only=True))
+        print("⚠️ best_model not found, loaded ppo_lstm.pth")
     model.eval()
 
     env = TradingEnv(X, price)

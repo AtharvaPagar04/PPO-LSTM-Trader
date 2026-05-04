@@ -18,7 +18,7 @@ class TradingEnv:
         return self._get_state()
 
     def _get_state(self):
-        return self.X[self.t]   # (20, features)
+        return self.X[self.t]  # (seq_len, features)
 
     def step(self, action):
         # clamp action to [-1, 1]
@@ -31,7 +31,7 @@ class TradingEnv:
         # Compute return
         # -------------------------
         close = self.price[self.t]
-        curr_price = close[-1][3]   # close price at t
+        curr_price = close[-1][3]  # close price at t
         next_price = self.price[self.t + 1][-1][3]
 
         ret = (next_price / (curr_price + 1e-8)) - 1.0
@@ -60,12 +60,18 @@ class TradingEnv:
         drawdown = (self.peak - self.equity) / self.peak
 
         # -------------------------
-        # Reward (simple, stable)
+        # Reward (final tuned version)
         # -------------------------
-        reward = pnl * 100  # amplify signal
+    
 
-        # risk penalty
+        # risk control
+        reward = pnl * 100
+
         reward -= 0.1 * drawdown
+        reward -= 0.012 * (self.position ** 2)
+        reward -= 0.002 * position_change
+
+        reward = np.clip(reward, -10, 10)
 
         # -------------------------
         # Step forward

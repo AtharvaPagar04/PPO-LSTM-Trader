@@ -1,4 +1,4 @@
-
+import random
 import numpy as np
 import torch
 
@@ -12,10 +12,15 @@ def load_data():
     train_price = np.load("data/train_price_windows.npy")
 
     return train_X, train_price
-
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 def main():
     print("🚀 Starting PPO Training")
+    set_seed(42)
 
     # -------------------------
     # Load data
@@ -42,17 +47,24 @@ def main():
     # -------------------------
     trainer = PPOTrainer(env, model)
 
+    best_reward = -float("inf")
+
     # -------------------------
     # Training loop
     # -------------------------
-    ITERATIONS = 200
+    ITERATIONS = 300
 
     for i in range(ITERATIONS):
         rollout = trainer.collect_rollout()
-
         trainer.update(rollout)
 
-        print(f"Iteration {i+1} completed")
+        total_reward = rollout["rewards"].sum()
+
+        if total_reward > best_reward:
+            best_reward = total_reward
+            torch.save(model.state_dict(), "models/best_model.pth")
+
+    print(f"Iteration {i+1} completed | Reward: {total_reward:.2f}")
 
     # -------------------------
     # Save model

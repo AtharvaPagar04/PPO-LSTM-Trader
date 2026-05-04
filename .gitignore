@@ -41,3 +41,7 @@ Thumbs.db
 # Notebooks
 # ----------------------
 .ipynb_checkpoints/
+
+ml-trading-system/data/
+ml-trading-system/models/
+ml-trading-system/venv/
