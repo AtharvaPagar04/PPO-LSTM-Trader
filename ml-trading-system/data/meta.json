@@ -1,0 +1,13 @@
+{
+    "window_size": 20,
+    "features": [
+        "log_return",
+        "volatility",
+        "body",
+        "wick",
+        "momentum_5",
+        "range",
+        "vol_z",
+        "body_ratio"
+    ]
+}
