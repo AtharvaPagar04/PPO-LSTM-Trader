@@ -9,12 +9,13 @@ class TradingEnv:
 
         self.n = len(self.X)
 
+        
         # ✅ control episode length (important for PPO)
         self.max_steps = 512
 
     def reset(self):
         # ✅ start from a safe range to allow full episode
-        self.t = np.random.randint(0, self.n - 2000)
+        self.t = np.random.randint(0, self.n - self.max_steps - 1)
         self.steps = 0
 
         self.position = 0.0
@@ -35,16 +36,17 @@ class TradingEnv:
         prev_position = self.position
 
         # ✅ prevent extreme exposure
-        self.position = float(np.clip(action, -0.8, 0.8))
-
+        self.position = float(np.clip(action, -1.0, 1.0))
         # -------------------------
         # Price movement
         # -------------------------
-        close = self.price[self.t]
-        curr_price = close[-1][3]
+        if self.t + 1 >= self.n:
+            return self._get_state(), 0.0, True, {}
+
+        curr_price = self.price[self.t][-1][3]
         next_price = self.price[self.t + 1][-1][3]
 
-        ret = (next_price / (curr_price + 1e-8)) - 1.0
+        ret = np.log((next_price + 1e-8) / (curr_price + 1e-8))
 
         # -------------------------
         # Transaction cost
@@ -60,7 +62,7 @@ class TradingEnv:
         # -------------------------
         # Equity update
         # -------------------------
-        self.equity *= (1 + pnl)
+        self.equity *= np.exp(pnl)
         self.equity = max(self.equity, 1e-8)
 
         # -------------------------
@@ -70,37 +72,22 @@ class TradingEnv:
         drawdown = (self.peak - self.equity) / self.peak
 
         # -------------------------
-        # Reward (PHASE 3 FINAL TUNED)
+        # Reward (STABLE VERSION)
         # -------------------------
 
-        reward = pnl * 7
+        reward = pnl * 50  # strong signal
 
-        # risk penalty
-        reward -= 0.05 * drawdown
+        # drawdown penalty (important)
+        reward -= 0.1 * drawdown
 
-        # position control
-        reward -= 0.02 * (self.position ** 2)
+        # position regularization (prevent extreme exposure)
+        reward -= 0.05 * (self.position ** 2)
 
-        # smooth transitions
-        reward -= 0.001 * (self.position - prev_position) ** 2
+        # transaction cost awareness
+        reward -= 0.001 * abs(self.position - prev_position)
 
-        # neutrality bias
-        reward += 0.005 * (1 - abs(self.position))
-
-        # 🔥 discourage directional bias (existing)
-        reward -= 0.01 * self.position
-
-        # 🔥 stronger correct direction reward
-        reward += 0.1 * self.position * ret * 10
-
-        # 🔥 NEW: penalize constant bias behavior
-        reward -= 0.02 * abs(self.position + 0.5)
-
-        # 🔥 NEW: encourage dynamic decisions
-        reward += 0.02 * abs(self.position - prev_position)
-
-        # stabilize
-        reward = np.clip(reward, -1, 1)
+        # clip for stability
+        reward = np.clip(reward, -5, 5)
 
         # -------------------------
         # Step forward
@@ -108,7 +95,7 @@ class TradingEnv:
         self.t += 1
         self.steps += 1
 
-        done = self.t >= self.n - 2 or self.steps >= self.max_steps
+        done = self.steps >= self.max_steps or self.t >= self.n - 2
 
         next_state = self._get_state()
 

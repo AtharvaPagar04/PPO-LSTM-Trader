@@ -1,8 +1,7 @@
 import os
 import subprocess
 
-SYMBOLS = ["btc_usdt", "ethusdt"]
-
+SYMBOLS = ["btc_usdt", "ethusdt", "solusdt"]
 for symbol in SYMBOLS:
     print(f"\n⚙️ Processing {symbol.upper()}...\n")
 

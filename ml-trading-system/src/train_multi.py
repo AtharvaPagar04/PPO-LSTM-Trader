@@ -2,8 +2,7 @@ import os
 import subprocess
 
 # 🔥 datasets to train on
-SYMBOLS = ["btc_usdt", "ethusdt"]
-
+SYMBOLS = ["btc_usdt", "ethusdt", "solusdt"]
 # paths
 DATA_DIR = "data/raw"
 LOG_DIR = "logs"
