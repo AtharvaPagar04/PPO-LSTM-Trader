@@ -2,8 +2,10 @@ from binance.client import Client
 import pandas as pd
 import time
 from tqdm import tqdm
+import argparse
 
 client = Client()
+
 
 def fetch_ohlcv(symbol="BTCUSDT", interval=Client.KLINE_INTERVAL_1HOUR, start_str="1 Jan 2022"):
     print(f"Fetching {symbol} data with progress...")
@@ -12,10 +14,11 @@ def fetch_ohlcv(symbol="BTCUSDT", interval=Client.KLINE_INTERVAL_1HOUR, start_st
     end_ts = int(pd.Timestamp.now().timestamp() * 1000)
 
     all_klines = []
+    step = 1000  # Binance max limit per request
 
-    step = 1000  # Binance limit per request
-
-    pbar = tqdm(total=(end_ts - start_ts) // (60 * 60 * 1000))  # rough estimate (hours)
+    # Progress bar (approximate total hours)
+    total_steps = (end_ts - start_ts) // (60 * 60 * 1000)
+    pbar = tqdm(total=total_steps)
 
     while start_ts < end_ts:
         klines = client.get_klines(
@@ -30,16 +33,17 @@ def fetch_ohlcv(symbol="BTCUSDT", interval=Client.KLINE_INTERVAL_1HOUR, start_st
 
         all_klines.extend(klines)
 
-        # Move start forward
+        # Move forward to next batch
         start_ts = klines[-1][0] + 1
 
         pbar.update(len(klines))
-
-        time.sleep(0.2)  # avoid rate limit
+        time.sleep(0.2)  # avoid rate limits
 
     pbar.close()
 
+    # -------------------------
     # Convert to DataFrame
+    # -------------------------
     columns = [
         "timestamp", "open", "high", "low", "close", "volume",
         "close_time", "quote_asset_volume", "num_trades",
@@ -50,6 +54,7 @@ def fetch_ohlcv(symbol="BTCUSDT", interval=Client.KLINE_INTERVAL_1HOUR, start_st
         ["timestamp", "open", "high", "low", "close", "volume"]
     ]
 
+    # Format data
     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
 
     for col in ["open", "high", "low", "close", "volume"]:
@@ -59,18 +64,27 @@ def fetch_ohlcv(symbol="BTCUSDT", interval=Client.KLINE_INTERVAL_1HOUR, start_st
 
     return df
 
-def main():
-    print("Starting data fetch...")
 
-    df = fetch_ohlcv()
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--symbol", type=str, default="BTCUSDT")
+    args = parser.parse_args()
+
+    symbol = args.symbol.upper()
+
+    print("Starting data fetch...")
+    print(f"Symbol: {symbol}")
+
+    df = fetch_ohlcv(symbol=symbol)
 
     print("Data fetched:", df.shape)
     print(df.head())
 
-    output_path = "data/raw/btc_usdt_1h.csv"
+    formatted_symbol = symbol.lower().replace("usdt", "_usdt")
+    output_path = f"data/raw/{formatted_symbol}_1h.csv"
     df.to_csv(output_path, index=False)
 
-    print(f"Saved to {output_path}")
+    print(f"✅ Saved to {output_path}")
 
 
 if __name__ == "__main__":

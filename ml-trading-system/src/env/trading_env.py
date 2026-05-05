@@ -2,36 +2,46 @@ import numpy as np
 
 
 class TradingEnv:
-    def __init__(self, feature_windows, price_windows, cost=0.0001):
+    def __init__(self, feature_windows, price_windows, cost=0.0004):
         self.X = feature_windows
         self.price = price_windows
         self.cost = cost
 
         self.n = len(self.X)
 
+        # ✅ control episode length (important for PPO)
+        self.max_steps = 512
+
     def reset(self):
-        self.t = 0
-        self.position = 0.0  # continuous [-1, 1]
+        # ✅ start from a safe range to allow full episode
+        self.t = np.random.randint(0, self.n - 2000)
+        self.steps = 0
+
+        self.position = 0.0
         self.equity = 1.0
         self.peak = 1.0
 
         return self._get_state()
 
     def _get_state(self):
-        return self.X[self.t]  # (seq_len, features)
+        return self.X[self.t]
 
     def step(self, action):
-        # clamp action to [-1, 1]
+        # -------------------------
+        # Action handling
+        # -------------------------
         action = float(np.clip(action, -1.0, 1.0))
 
         prev_position = self.position
-        self.position = action
+
+        # ✅ prevent extreme exposure
+        self.position = float(np.clip(action, -0.8, 0.8))
 
         # -------------------------
-        # Compute return
+        # Price movement
         # -------------------------
         close = self.price[self.t]
-        curr_price = close[-1][3]  # close price at t
+        curr_price = close[-1][3]
         next_price = self.price[self.t + 1][-1][3]
 
         ret = (next_price / (curr_price + 1e-8)) - 1.0
@@ -60,31 +70,53 @@ class TradingEnv:
         drawdown = (self.peak - self.equity) / self.peak
 
         # -------------------------
-        # Reward (final tuned version)
+        # Reward (PHASE 3 FINAL TUNED)
         # -------------------------
-    
 
-        # risk control
-        reward = pnl * 100
+        reward = pnl * 7
 
-        reward -= 0.1 * drawdown
-        reward -= 0.012 * (self.position ** 2)
-        reward -= 0.002 * position_change
+        # risk penalty
+        reward -= 0.05 * drawdown
 
-        reward = np.clip(reward, -10, 10)
+        # position control
+        reward -= 0.02 * (self.position ** 2)
+
+        # smooth transitions
+        reward -= 0.001 * (self.position - prev_position) ** 2
+
+        # neutrality bias
+        reward += 0.005 * (1 - abs(self.position))
+
+        # 🔥 discourage directional bias (existing)
+        reward -= 0.01 * self.position
+
+        # 🔥 stronger correct direction reward
+        reward += 0.1 * self.position * ret * 10
+
+        # 🔥 NEW: penalize constant bias behavior
+        reward -= 0.02 * abs(self.position + 0.5)
+
+        # 🔥 NEW: encourage dynamic decisions
+        reward += 0.02 * abs(self.position - prev_position)
+
+        # stabilize
+        reward = np.clip(reward, -1, 1)
 
         # -------------------------
         # Step forward
         # -------------------------
         self.t += 1
-        done = self.t >= self.n - 2
+        self.steps += 1
+
+        done = self.t >= self.n - 2 or self.steps >= self.max_steps
 
         next_state = self._get_state()
 
         info = {
             "equity": self.equity,
             "drawdown": drawdown,
-            "position": self.position
+            "position": self.position,
+            "pnl": pnl
         }
 
         return next_state, reward, done, info

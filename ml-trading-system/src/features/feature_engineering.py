@@ -3,12 +3,29 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 import joblib
 import json
+import os
 
 # -------------------------------
-# Step 1: Load and Prepare Data
+# PATH SETUP (FIXED)
 # -------------------------------
-df = pd.read_csv("../data/btc_usdt_1h.csv")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+RAW_DIR = os.path.join(DATA_DIR, "raw")
+PROCESSED_DIR = os.path.join(DATA_DIR, "processed")
 
+os.makedirs(PROCESSED_DIR, exist_ok=True)
+
+# 🔥 dynamic dataset selection
+DATA_PREFIX = os.environ.get("DATA_PREFIX", "btc_usdt")
+CSV_PATH = os.path.join(RAW_DIR, f"{DATA_PREFIX}_1h.csv")
+
+print(f"📊 Processing: {DATA_PREFIX}")
+print("Loading from:", CSV_PATH)
+
+# -------------------------------
+# Step 1: Load Data
+# -------------------------------
+df = pd.read_csv(CSV_PATH)
 df["timestamp"] = pd.to_datetime(df["timestamp"])
 df = df.sort_values("timestamp").reset_index(drop=True)
 
@@ -18,77 +35,80 @@ print(df.head())
 # -------------------------------
 # Step 2: Feature Engineering
 # -------------------------------
-
-# Core features
 df["log_return"] = np.log(df["close"] / df["close"].shift(1))
-df["volatility"] = df["log_return"].rolling(10).std()
-df["body"] = df["close"] - df["open"]
-df["wick"] = df["high"] - df["low"]
 
-# Additional features
+df["volatility_10"] = df["log_return"].rolling(10).std()
+df["volatility_20"] = df["log_return"].rolling(20).std()
+
 df["momentum_5"] = df["close"].pct_change(5)
-df["range"] = (df["high"] - df["low"]) / df["close"]
+df["momentum_10"] = df["close"].pct_change(10)
+
+df["ma_10"] = df["close"].rolling(10).mean()
+df["ma_30"] = df["close"].rolling(30).mean()
+df["trend"] = df["ma_10"] - df["ma_30"]
+
+# RSI
+delta = df["close"].diff()
+gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+rs = gain / (loss + 1e-8)
+df["rsi"] = 100 - (100 / (1 + rs))
+
+df["body"] = df["close"] - df["open"]
+df["range"] = df["high"] - df["low"]
+df["body_ratio"] = df["body"] / (df["range"] + 1e-8)
+
+df["range_pct"] = df["range"] / (df["close"] + 1e-8)
 
 df["vol_z"] = (
     (df["volume"] - df["volume"].rolling(20).mean()) /
     (df["volume"].rolling(20).std() + 1e-8)
 )
 
-df["body_ratio"] = (
-    (df["close"] - df["open"]) /
-    (df["high"] - df["low"] + 1e-8)
-)
-
-# Drop NaNs
 df = df.dropna().reset_index(drop=True)
 
 # -------------------------------
-# Step 3: RAW PRICE WINDOWS (IMPORTANT)
+# Step 3: Windowing
 # -------------------------------
 WINDOW_SIZE = 20
 
 price_cols = ["open", "high", "low", "close", "volume"]
 price_data = df[price_cols].values
 
-price_windows = []
-for i in range(len(price_data) - WINDOW_SIZE + 1):
-    price_windows.append(price_data[i:i + WINDOW_SIZE])
+price_windows = np.array([
+    price_data[i:i + WINDOW_SIZE]
+    for i in range(len(price_data) - WINDOW_SIZE + 1)
+])
 
-price_windows = np.array(price_windows)
-
-# -------------------------------
-# Step 4: FEATURE WINDOWS (ML)
-# -------------------------------
 features = [
     "log_return",
-    "volatility",
-    "body",
-    "wick",
+    "volatility_10",
+    "volatility_20",
     "momentum_5",
-    "range",
-    "vol_z",
-    "body_ratio"
+    "momentum_10",
+    "trend",
+    "rsi",
+    "body_ratio",
+    "range_pct",
+    "vol_z"
 ]
 
 data = df[features].values
 
-windows = []
-for i in range(len(data) - WINDOW_SIZE + 1):
-    windows.append(data[i:i + WINDOW_SIZE])
-
-windows = np.array(windows)
+windows = np.array([
+    data[i:i + WINDOW_SIZE]
+    for i in range(len(data) - WINDOW_SIZE + 1)
+])
 
 # -------------------------------
-# Step 5: Train/Test Split
+# Step 4: Train/Test Split
 # -------------------------------
 split_ratio = 0.8
 split_idx = int(len(windows) * split_ratio)
 
-# Feature windows
 train_windows = windows[:split_idx]
 test_windows = windows[split_idx:]
 
-# Price windows (aligned)
 train_price_windows = price_windows[:split_idx]
 test_price_windows = price_windows[split_idx:]
 
@@ -97,7 +117,7 @@ print("Train features:", train_windows.shape)
 print("Train prices:", train_price_windows.shape)
 
 # -------------------------------
-# Step 6: Normalize FEATURES ONLY
+# Step 5: Normalization
 # -------------------------------
 scaler = StandardScaler()
 
@@ -111,49 +131,35 @@ train_windows = train_scaled.reshape(train_windows.shape)
 test_windows = test_scaled.reshape(test_windows.shape)
 
 # -------------------------------
-# Step 7: Sanity Checks
+# Step 6: Sanity Check
 # -------------------------------
-assert not np.isnan(train_windows).any(), "NaNs in train windows!"
-assert not np.isnan(test_windows).any(), "NaNs in test windows!"
+assert not np.isnan(train_windows).any()
+assert not np.isnan(test_windows).any()
 
-print("\nFinal Output:")
-print("Train windows shape:", train_windows.shape)
-print("Example feature window:\n", train_windows[0])
-
-print("\nFeature stats (train only):")
+print("\nFeature stats (train):")
 print("Mean:", train_windows.mean(axis=(0, 1)))
 print("Std:", train_windows.std(axis=(0, 1)))
 
 # -------------------------------
-# Step 8: Save Outputs
+# Step 7: Save (FIXED)
 # -------------------------------
-
-# Feature windows (for ML)
-np.save("../data/train_windows.npy", train_windows)
-np.save("../data/test_windows.npy", test_windows)
-
-# RAW price windows (for returns)
-np.save("../data/train_price_windows.npy", train_price_windows)
-np.save("../data/test_price_windows.npy", test_price_windows)
-
-# Optional
-np.save("../data/features.npy", data)
-
-# Save scaler
-joblib.dump(scaler, "../data/scaler.pkl")
-
-# Metadata
 meta = {
     "window_size": WINDOW_SIZE,
     "features": features,
     "split_ratio": split_ratio
 }
 
-with open("../data/meta.json", "w") as f:
+# 🔥 CRITICAL FIX — dataset-specific files
+np.save(os.path.join(PROCESSED_DIR, f"{DATA_PREFIX}_train_windows.npy"), train_windows)
+np.save(os.path.join(PROCESSED_DIR, f"{DATA_PREFIX}_test_windows.npy"), test_windows)
+
+np.save(os.path.join(PROCESSED_DIR, f"{DATA_PREFIX}_train_price_windows.npy"), train_price_windows)
+np.save(os.path.join(PROCESSED_DIR, f"{DATA_PREFIX}_test_price_windows.npy"), test_price_windows)
+
+joblib.dump(scaler, os.path.join(PROCESSED_DIR, f"{DATA_PREFIX}_scaler.pkl"))
+
+with open(os.path.join(PROCESSED_DIR, f"{DATA_PREFIX}_meta.json"), "w") as f:
     json.dump(meta, f, indent=4)
 
-print("\nSaved:")
-print("- train_windows.npy (features)")
-print("- train_price_windows.npy (RAW prices)")
-print("- scaler.pkl")
-print("- meta.json")
+print(f"\n✅ Saved successfully for: {DATA_PREFIX}")
+print("Location:", PROCESSED_DIR)

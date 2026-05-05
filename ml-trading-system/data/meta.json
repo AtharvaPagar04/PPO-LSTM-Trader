@@ -2,12 +2,15 @@
     "window_size": 20,
     "features": [
         "log_return",
-        "volatility",
-        "body",
-        "wick",
+        "volatility_10",
+        "volatility_20",
         "momentum_5",
-        "range",
-        "vol_z",
-        "body_ratio"
-    ]
+        "momentum_10",
+        "trend",
+        "rsi",
+        "body_ratio",
+        "range_pct",
+        "vol_z"
+    ],
+    "split_ratio": 0.8
 }
