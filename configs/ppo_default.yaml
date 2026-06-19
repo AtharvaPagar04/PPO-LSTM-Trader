@@ -1,0 +1,12 @@
+{
+  "ppo": {
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_ratio": 0.2,
+    "entropy_coef": 0.01,
+    "value_coef": 0.5,
+    "std_penalty_coef": 0.01,
+    "max_grad_norm": 0.5,
+    "std_parameterization": "hard_clamp"
+  }
+}

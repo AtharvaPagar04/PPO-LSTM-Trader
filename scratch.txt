@@ -1,0 +1,48 @@
+Root cause:
+The on-disk cached dataset in `data/processed/` is stale. It was generated when `engineer_features` dropped fewer rows (e.g. 30), resulting in `test_X` having length 7601. However, `evaluate_walk_forward_asset` computes the timestamps dynamically via `_window_end_timestamps()`, which runs the CURRENT `engineer_features()` (which now includes `volatility_72`, dropping 72 rows). This makes the dynamically computed `timestamps` list shorter (length 7592). Since `walk_forward_folds` generates indices based on the length of `test_X` (7601), `fold.end_index` can be 7601, making `fold.end_index - 1 = 7600`, which is well out of bounds for the 7592-item list.
+Additionally, `objective_calibration.py` was invoked with `--feature-preset price_action_minimal`, but the script currently ignores this flag. It does not build an in-memory dataset, and instead silently falls back to `processed_dataset=None`, loading the stale dataset from disk.
+
+Exact mismatch:
+- `asset`: btc_usdt
+- `feature_preset`: price_action_minimal (requested via CLI but ignored by the experiment runner)
+- `quick_mode`: True
+- `where X/y/timestamps come from`: `X`/`y` are loaded from the stale `data/processed/` cache by `load_processed_data()`. `timestamps` are dynamically computed by `_window_end_timestamps()`.
+- `len(X)`: 7601
+- `len(y)`: 7601
+- `len(timestamps)`: 7592
+- `where walk-forward folds are created`: `create_walk_forward_folds` in `walk_forward.py`, using `len(X)` (7601).
+- `fold.start_index values`: [0, 1520, 3040, 4560, 6080]
+- `fold.end_index values`: [1520, 3040, 4560, 6080, 7601]
+- `max fold.end_index`: 7601
+- `why fold.end_index exceeds timestamps length`: 7601 > 7592 because the stale dataset on disk has 9 more rows than what the current feature engineering pipeline generates.
+- `how feature-ablation avoids this bug`: It calls `build_processed_dataset()` to construct `X`/`y`/`timestamps` completely in-memory using the current pipeline, and explicitly passes this `dataset` to all downstream components.
+- `how seed-validation avoids this bug`: Like feature-ablation, it builds the dataset dynamically and passes it into the pipeline via the `processed_dataset=dataset` argument.
+
+Files inspected:
+src/experiments/objective_calibration.py
+src/evaluation/walk_forward.py
+src/features/pipeline.py
+src/experiments/feature_ablation.py
+src/train.py
+
+Relevant functions:
+run_objective_calibration_experiment
+evaluate_walk_forward_asset
+_window_end_timestamps
+create_walk_forward_folds
+build_processed_dataset
+apply_feature_preset_to_config
+
+Why unit tests missed it:
+The unit tests mock the heavy filesystem I/O operations and end-to-end evaluation logic. They did not test the integration between the loaded disk arrays and the dynamically-calculated timestamps list with a real `metadata.json` vs a real `engineer_features` execution. 
+
+Recommended minimal fix:
+1. In `src/experiments/objective_calibration.py`, apply the `feature_preset`, call `build_processed_dataset()`, and pass `processed_dataset=dataset` to `train_asset()`, `collect_model_diagnostics()`, and both calls to `evaluate_walk_forward_asset()`. This matches the successful pattern from `feature_ablation.py`.
+2. In `src/evaluation/walk_forward.py`, add a safe guard right before fetching the timestamp to raise a clear `ValueError` with debug details if `fold.end_index - 1 >= len(timestamps)`.
+
+Tests that should be added:
+- `tests/test_objective_calibration.py`: Ensure `run_objective_calibration_experiment` applies the feature preset and passes `processed_dataset` downward.
+- `tests/test_walk_forward.py`: A unit test confirming `evaluate_walk_forward_asset` raises a `ValueError` with a descriptive message if `len(test_X)` does not match `len(timestamps)`.
+
+Risk of the fix:
+Very low. It relies on `build_processed_dataset` which is a tested and stable mechanism already in use by other experiment runners. The `ValueError` is a defensive safeguard that improves debuggability.
