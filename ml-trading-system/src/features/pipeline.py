@@ -39,7 +39,27 @@ REGIME_FEATURE_COLUMNS = [
     "drawdown_from_rolling_high_72",
 ]
 
-ALL_FEATURE_COLUMNS = FEATURE_COLUMNS + REGIME_FEATURE_COLUMNS
+CROSS_ASSET_FEATURE_COLUMNS = [
+    "eth_return_1",
+    "sol_return_1",
+    "eth_return_24",
+    "sol_return_24",
+    "eth_return_72",
+    "sol_return_72",
+    "eth_volatility_24",
+    "sol_volatility_24",
+    "eth_btc_return_spread_24",
+    "sol_btc_return_spread_24",
+    "market_avg_return_24",
+    "market_avg_return_72",
+    "market_volatility_24",
+    "btc_relative_strength_24",
+    "btc_relative_strength_72",
+    "eth_btc_correlation_24",
+    "sol_btc_correlation_24",
+]
+
+ALL_FEATURE_COLUMNS = FEATURE_COLUMNS + REGIME_FEATURE_COLUMNS + CROSS_ASSET_FEATURE_COLUMNS
 
 PRICE_COLUMNS = ["open", "high", "low", "close", "volume"]
 
@@ -136,6 +156,68 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     return features.dropna().reset_index(drop=True)
 
 
+def engineer_labels(df: pd.DataFrame) -> pd.DataFrame:
+    labels = df.copy()
+    horizons = [1, 3, 6, 12, 24]
+    for h in horizons:
+        labels[f"future_return_{h}"] = np.log(labels["close"].shift(-h) / labels["close"])
+        labels[f"next_up_{h}"] = labels[f"future_return_{h}"] > 0
+        
+    return labels.dropna().reset_index(drop=True)
+
+
+def add_cross_asset_features(
+    base_df: pd.DataFrame, asset: str = "btc_usdt", context_assets: tuple[str, ...] = ("eth_usdt", "sol_usdt")
+) -> pd.DataFrame:
+    df = base_df.copy()
+
+    # Ensure raw data is available before processing
+    for ctx in context_assets:
+        try:
+            resolve_existing_raw_data_path(ctx)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Cross-asset features require raw data for eth_usdt and sol_usdt. Missing: {ctx}")
+
+    context_dfs = {}
+    for ctx in context_assets:
+        raw_df = load_raw_dataframe(ctx)
+        ctx_df = raw_df[["timestamp", "close"]].copy()
+        prefix = ctx.split("_")[0]
+
+        ctx_df[f"{prefix}_return_1"] = np.log(ctx_df["close"] / ctx_df["close"].shift(1))
+        ctx_df[f"{prefix}_return_24"] = np.log(ctx_df["close"] / ctx_df["close"].shift(24))
+        ctx_df[f"{prefix}_return_72"] = np.log(ctx_df["close"] / ctx_df["close"].shift(72))
+        ctx_df[f"{prefix}_volatility_24"] = ctx_df[f"{prefix}_return_1"].rolling(24).std()
+
+        context_dfs[ctx] = ctx_df.set_index("timestamp").drop(columns=["close"])
+
+    # Merge using left join on timestamp (aligns to target asset's timeline)
+    df = df.set_index("timestamp")
+    for ctx_df in context_dfs.values():
+        df = df.join(ctx_df, how="left")
+
+    btc_ret_24 = df["return_24"]
+    btc_ret_72 = df["return_72"]
+    btc_vol_24 = df["volatility_24"]
+    btc_ret_1 = df["log_return"]
+
+    df["eth_btc_return_spread_24"] = btc_ret_24 - df["eth_return_24"]
+    df["sol_btc_return_spread_24"] = btc_ret_24 - df["sol_return_24"]
+
+    df["market_avg_return_24"] = df[["return_24", "eth_return_24", "sol_return_24"]].mean(axis=1)
+    df["market_avg_return_72"] = df[["return_72", "eth_return_72", "sol_return_72"]].mean(axis=1)
+    df["market_volatility_24"] = df[["volatility_24", "eth_volatility_24", "sol_volatility_24"]].mean(axis=1)
+
+    df["btc_relative_strength_24"] = btc_ret_24 - df["market_avg_return_24"]
+    df["btc_relative_strength_72"] = btc_ret_72 - df["market_avg_return_72"]
+
+    df["eth_btc_correlation_24"] = btc_ret_1.rolling(24).corr(df["eth_return_1"])
+    df["sol_btc_correlation_24"] = btc_ret_1.rolling(24).corr(df["sol_return_1"])
+
+    df = df.replace([np.inf, -np.inf], np.nan)
+    return df.dropna().reset_index()
+
+
 def create_windows(data: np.ndarray, window_size: int) -> np.ndarray:
     if len(data) < window_size:
         raise ValueError(
@@ -164,6 +246,10 @@ def build_processed_dataset(
     asset = normalize_asset_name(asset)
     df = engineer_features(load_raw_dataframe(asset))
     selected_features = resolve_selected_features(selected_features)
+
+    # Opt-in cross-asset features computation
+    if any(feat in CROSS_ASSET_FEATURE_COLUMNS for feat in selected_features):
+        df = add_cross_asset_features(df, asset=asset)
 
     price_data = df[PRICE_COLUMNS].to_numpy(dtype=np.float32)
     feature_data = df[selected_features].to_numpy(dtype=np.float32)

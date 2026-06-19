@@ -289,6 +289,9 @@ def test_experiment_help_works():
     assert "reward" in result.stdout
     assert "feature-ablation" in result.stdout
     assert "seed-validation" in result.stdout
+    assert "supervised-signal-strategy" in result.stdout
+    assert "target-audit" in result.stdout
+    assert "feature-signal-audit" in result.stdout
 
 
 def test_experiment_reward_help_works():
@@ -628,3 +631,207 @@ def test_experiment_objective_calibration_routes_correctly():
     assert mock_exp.call_args[0][0] == "btc_usdt"
     assert mock_exp.call_args.kwargs["presets"] == ["current", "exposure_penalty_light"]
     assert mock_exp.call_args.kwargs["quick"] is True
+
+def test_experiment_signal_audit_routes_correctly():
+    fake_result = "logs/experiments/fake"
+    from unittest.mock import patch
+    import src.cli as cli
+
+    with patch("src.experiments.signal_audit.run_signal_audit_experiment", return_value=fake_result) as mock_exp:
+        exit_code = cli.main(
+            [
+                "experiment",
+                "signal-audit",
+                "--asset",
+                "btc_usdt",
+                "--feature-presets",
+                "price_action_minimal",
+                "--quick",
+            ]
+        )
+    assert exit_code == 0
+    mock_exp.assert_called_once()
+    assert mock_exp.call_args[0][0] == "btc_usdt"
+    assert mock_exp.call_args.kwargs["presets"] == ["price_action_minimal"]
+    assert mock_exp.call_args.kwargs["quick"] is True
+
+
+def test_experiment_supervised_signal_strategy_help_works():
+    result = run_cli("experiment", "supervised-signal-strategy", "--help")
+    assert result.returncode == 0
+    assert "--feature-preset" in result.stdout
+    assert "--horizon" in result.stdout
+    assert "--target-label" in result.stdout
+    assert "--threshold" in result.stdout
+
+
+def test_experiment_supervised_signal_strategy_routes_correctly():
+    fake_result = {"experiment_dir": "logs/experiments/fake", "summary_rows": []}
+    from unittest.mock import patch
+    import src.cli as cli
+
+    with patch(
+        "src.experiments.supervised_signal_strategy.run_supervised_signal_strategy_experiment",
+        return_value=fake_result,
+    ) as mock_exp:
+        exit_code = cli.main(
+            [
+                "experiment",
+                "supervised-signal-strategy",
+                "--asset",
+                "btc_usdt",
+                "--feature-preset",
+                "cross_asset_context_v1",
+                "--horizon",
+                "1",
+                "--target-label",
+                "binary_down_threshold",
+                "--threshold",
+                "0.001",
+                "--quick",
+            ]
+        )
+    assert exit_code == 0
+    mock_exp.assert_called_once()
+    assert mock_exp.call_args[0][0] == "btc_usdt"
+    assert mock_exp.call_args.kwargs["feature_preset"] == "cross_asset_context_v1"
+    assert mock_exp.call_args.kwargs["horizon"] == 1
+    assert mock_exp.call_args.kwargs["target_label"] == "binary_down_threshold"
+    assert mock_exp.call_args.kwargs["threshold"] == 0.001
+    assert mock_exp.call_args.kwargs["quick"] is True
+
+
+def test_experiment_supervised_signal_strategy_accepts_stable_cross_asset_core_v2():
+    fake_result = {"experiment_dir": "logs/experiments/fake", "summary_rows": []}
+    from unittest.mock import patch
+    import src.cli as cli
+
+    with patch(
+        "src.experiments.supervised_signal_strategy.run_supervised_signal_strategy_experiment",
+        return_value=fake_result,
+    ) as mock_exp:
+        exit_code = cli.main(
+            [
+                "experiment",
+                "supervised-signal-strategy",
+                "--asset",
+                "btc_usdt",
+                "--feature-preset",
+                "stable_cross_asset_core_v2",
+                "--horizon",
+                "6",
+                "--target-label",
+                "binary_down_threshold",
+                "--threshold",
+                "0.001",
+            ]
+        )
+    assert exit_code == 0
+    assert mock_exp.call_args.kwargs["feature_preset"] == "stable_cross_asset_core_v2"
+
+
+def test_experiment_target_audit_help_works():
+    result = run_cli("experiment", "target-audit", "--help")
+    assert result.returncode == 0
+    assert "--feature-preset" in result.stdout
+    assert "--horizons" in result.stdout
+    assert "--thresholds" in result.stdout
+
+
+def test_experiment_target_audit_routes_correctly():
+    fake_result = {"experiment_dir": "logs/experiments/fake", "summary_rows": []}
+    from unittest.mock import patch
+    import src.cli as cli
+
+    with patch(
+        "src.experiments.target_audit.run_target_audit_experiment",
+        return_value=fake_result,
+    ) as mock_exp:
+        exit_code = cli.main(
+            [
+                "experiment",
+                "target-audit",
+                "--asset",
+                "btc_usdt",
+                "--feature-preset",
+                "cross_asset_context_v1",
+                "--horizons",
+                "1",
+                "3",
+                "6",
+                "--thresholds",
+                "0.0",
+                "0.0005",
+                "0.001",
+                "--quick",
+            ]
+        )
+    assert exit_code == 0
+    mock_exp.assert_called_once()
+    assert mock_exp.call_args[0][0] == "btc_usdt"
+    assert mock_exp.call_args.kwargs["feature_preset"] == "cross_asset_context_v1"
+    assert mock_exp.call_args.kwargs["horizons"] == [1, 3, 6]
+    assert mock_exp.call_args.kwargs["thresholds"] == [0.0, 0.0005, 0.001]
+    assert mock_exp.call_args.kwargs["quick"] is True
+
+
+def test_experiment_target_audit_accepts_stable_cross_asset_core_v1():
+    fake_result = {"experiment_dir": "logs/experiments/fake", "summary_rows": []}
+    from unittest.mock import patch
+    import src.cli as cli
+
+    with patch(
+        "src.experiments.target_audit.run_target_audit_experiment",
+        return_value=fake_result,
+    ) as mock_exp:
+        exit_code = cli.main(
+            [
+                "experiment",
+                "target-audit",
+                "--asset",
+                "btc_usdt",
+                "--feature-preset",
+                "stable_cross_asset_core_v1",
+                "--horizons",
+                "1",
+                "6",
+            ]
+        )
+    assert exit_code == 0
+    assert mock_exp.call_args.kwargs["feature_preset"] == "stable_cross_asset_core_v1"
+
+
+def test_experiment_feature_signal_audit_help_works():
+    result = run_cli("experiment", "feature-signal-audit", "--help")
+    assert result.returncode == 0
+    assert "--feature-preset" in result.stdout
+    assert "--horizons" in result.stdout
+
+
+def test_experiment_feature_signal_audit_routes_correctly():
+    fake_result = {"experiment_dir": "logs/experiments/fake", "summary_rows": []}
+    from unittest.mock import patch
+    import src.cli as cli
+
+    with patch(
+        "src.experiments.feature_signal_audit.run_feature_signal_audit_experiment",
+        return_value=fake_result,
+    ) as mock_exp:
+        exit_code = cli.main(
+            [
+                "experiment",
+                "feature-signal-audit",
+                "--asset",
+                "btc_usdt",
+                "--feature-preset",
+                "cross_asset_context_v1",
+                "--horizons",
+                "1",
+                "3",
+                "6",
+            ]
+        )
+    assert exit_code == 0
+    assert mock_exp.call_args[0][0] == "btc_usdt"
+    assert mock_exp.call_args.kwargs["feature_preset"] == "cross_asset_context_v1"
+    assert mock_exp.call_args.kwargs["horizons"] == [1, 3, 6]

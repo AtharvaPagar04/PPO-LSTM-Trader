@@ -150,6 +150,55 @@ def build_parser():
     objective_calibration_parser.add_argument("--feature-preset", type=str, default="price_action_minimal")
     objective_calibration_parser.add_argument("--quick", action="store_true")
 
+    signal_audit_parser = experiment_subparsers.add_parser(
+        "signal-audit", help="Run predictive signal audit on features."
+    )
+    signal_audit_parser.add_argument("--asset", type=str, default=None)
+    signal_audit_parser.add_argument("--config", type=str, default=None)
+    signal_audit_parser.add_argument("--feature-presets", nargs="+", default=None)
+    signal_audit_parser.add_argument("--quick", action="store_true")
+
+    supervised_signal_strategy_parser = experiment_subparsers.add_parser(
+        "supervised-signal-strategy",
+        help="Run supervised trading baselines from audited signal features.",
+    )
+    supervised_signal_strategy_parser.add_argument("--asset", type=str, default=None)
+    supervised_signal_strategy_parser.add_argument("--config", type=str, default=None)
+    supervised_signal_strategy_parser.add_argument(
+        "--feature-preset", type=str, default="cross_asset_context_v1"
+    )
+    supervised_signal_strategy_parser.add_argument("--horizon", type=int, default=1)
+    supervised_signal_strategy_parser.add_argument(
+        "--target-label", type=str, default="binary_up_threshold"
+    )
+    supervised_signal_strategy_parser.add_argument("--threshold", type=float, default=0.0)
+    supervised_signal_strategy_parser.add_argument("--quick", action="store_true")
+
+    target_audit_parser = experiment_subparsers.add_parser(
+        "target-audit",
+        help="Run cost-aware target and label diagnostics.",
+    )
+    target_audit_parser.add_argument("--asset", type=str, default=None)
+    target_audit_parser.add_argument("--config", type=str, default=None)
+    target_audit_parser.add_argument(
+        "--feature-preset", type=str, default="cross_asset_context_v1"
+    )
+    target_audit_parser.add_argument("--horizons", nargs="+", type=int, default=None)
+    target_audit_parser.add_argument("--thresholds", nargs="+", type=float, default=None)
+    target_audit_parser.add_argument("--quick", action="store_true")
+
+    feature_signal_audit_parser = experiment_subparsers.add_parser(
+        "feature-signal-audit",
+        help="Run feature-level predictive signal diagnostics.",
+    )
+    feature_signal_audit_parser.add_argument("--asset", type=str, default=None)
+    feature_signal_audit_parser.add_argument("--config", type=str, default=None)
+    feature_signal_audit_parser.add_argument(
+        "--feature-preset", type=str, default="cross_asset_context_v1"
+    )
+    feature_signal_audit_parser.add_argument("--horizons", nargs="+", type=int, default=None)
+    feature_signal_audit_parser.add_argument("--quick", action="store_true")
+
     return parser
 
 
@@ -506,6 +555,63 @@ def cmd_experiment(args):
             config,
             presets=args.presets or ["current", "exposure_penalty_light", "directional_edge_reward", "timing_calibration_combo"],
             feature_preset=args.feature_preset,
+            quick=args.quick,
+        )
+        return 0
+    elif args.experiment_type == "signal-audit":
+        if not args.asset:
+            print("[ERROR] You must provide --asset.", file=sys.stderr)
+            return 1
+        asset = normalize_asset_name(args.asset)
+        from src.experiments.signal_audit import run_signal_audit_experiment
+
+        run_signal_audit_experiment(
+            asset,
+            config,
+            presets=args.feature_presets or ["price_action_minimal", "minimal_plus_cross_asset", "cross_asset_context_v1"],
+            quick=args.quick,
+        )
+        return 0
+    elif args.experiment_type == "supervised-signal-strategy":
+        asset = normalize_asset_name(args.asset or "btc_usdt")
+        from src.experiments.supervised_signal_strategy import (
+            run_supervised_signal_strategy_experiment,
+        )
+
+        run_supervised_signal_strategy_experiment(
+            asset,
+            config,
+            feature_preset=args.feature_preset,
+            horizon=args.horizon,
+            target_label=args.target_label,
+            threshold=args.threshold,
+            quick=args.quick,
+        )
+        return 0
+    elif args.experiment_type == "target-audit":
+        asset = normalize_asset_name(args.asset or "btc_usdt")
+        from src.experiments.target_audit import run_target_audit_experiment
+
+        run_target_audit_experiment(
+            asset,
+            config,
+            feature_preset=args.feature_preset,
+            horizons=args.horizons or [1, 3, 6],
+            thresholds=args.thresholds or [0.0, 0.0005, 0.001],
+            quick=args.quick,
+        )
+        return 0
+    elif args.experiment_type == "feature-signal-audit":
+        asset = normalize_asset_name(args.asset or "btc_usdt")
+        from src.experiments.feature_signal_audit import (
+            run_feature_signal_audit_experiment,
+        )
+
+        run_feature_signal_audit_experiment(
+            asset,
+            config,
+            feature_preset=args.feature_preset,
+            horizons=args.horizons or [1, 3, 6, 12, 24],
             quick=args.quick,
         )
         return 0

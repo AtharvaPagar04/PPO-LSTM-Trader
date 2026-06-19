@@ -156,5 +156,80 @@
       "range_pct",
       "vol_z"
     ]
+  },
+  "cross_asset_context_v1": {
+    "description": "Test pure cross-asset context with minimal BTC price action.",
+    "features": [
+      "log_return",
+      "momentum_10",
+      "trend",
+      "rsi",
+      "eth_return_24",
+      "sol_return_24",
+      "eth_return_72",
+      "sol_return_72",
+      "eth_btc_return_spread_24",
+      "sol_btc_return_spread_24",
+      "market_avg_return_24",
+      "btc_relative_strength_24"
+    ]
+  },
+  "minimal_plus_cross_asset": {
+    "description": "Build on price_action_minimal with ETH/SOL market context.",
+    "features": [
+      "log_return",
+      "momentum_10",
+      "trend",
+      "rsi",
+      "return_24",
+      "return_72",
+      "eth_return_24",
+      "sol_return_24",
+      "eth_btc_return_spread_24",
+      "sol_btc_return_spread_24",
+      "market_avg_return_24",
+      "market_avg_return_72",
+      "btc_relative_strength_24",
+      "btc_relative_strength_72",
+      "market_volatility_24"
+    ]
+  },
+  "cross_asset_regime_v1": {
+    "description": "Test market regime and relative strength features.",
+    "features": [
+      "log_return",
+      "momentum_10",
+      "trend",
+      "rsi",
+      "market_avg_return_24",
+      "market_avg_return_72",
+      "market_volatility_24",
+      "btc_relative_strength_24",
+      "btc_relative_strength_72",
+      "eth_btc_correlation_24",
+      "sol_btc_correlation_24"
+    ]
+  },
+  "stable_cross_asset_core_v1": {
+    "description": "Minimal stable cross-asset signal candidates from feature-signal-audit.",
+    "features": [
+      "log_return",
+      "trend",
+      "eth_return_24",
+      "eth_return_72",
+      "market_avg_return_24"
+    ]
+  },
+  "stable_cross_asset_core_v2": {
+    "description": "Stable cross-asset candidates plus SOL confirmation from feature-signal-audit.",
+    "features": [
+      "log_return",
+      "trend",
+      "eth_return_24",
+      "eth_return_72",
+      "sol_return_24",
+      "sol_return_72",
+      "market_avg_return_24"
+    ]
   }
 }

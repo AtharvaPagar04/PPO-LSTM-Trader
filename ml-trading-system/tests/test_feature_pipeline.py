@@ -91,4 +91,37 @@ def test_selected_regime_feature_order_is_stable(monkeypatch):
         selected_features=selected,
     )
     assert dataset.metadata["features"] == selected
+    assert dataset.metadata["features"] == selected
     assert dataset.train_windows.shape[-1] == len(selected)
+
+
+def test_engineer_labels_shifts_correctly():
+    df = make_raw_df(rows=50)
+    labels = pipeline.engineer_labels(df)
+    
+    # original length was 50, max horizon is 24, so length should be 50 - 24 = 26
+    assert len(labels) == 26
+    
+    # check that future_return_1 is correct
+    # log(close[t+1] / close[t])
+    for i in range(len(labels)):
+        expected_ret1 = np.log(df.iloc[i + 1]["close"] / df.iloc[i]["close"])
+        assert np.isclose(labels.iloc[i]["future_return_1"], expected_ret1)
+        
+        expected_ret24 = np.log(df.iloc[i + 24]["close"] / df.iloc[i]["close"])
+        assert np.isclose(labels.iloc[i]["future_return_24"], expected_ret24)
+        
+        assert labels.iloc[i]["next_up_1"] == (expected_ret1 > 0)
+
+
+def test_no_future_labels_leak_into_features(monkeypatch):
+    monkeypatch.setattr(pipeline, "load_raw_dataframe", lambda asset: make_raw_df(rows=100))
+    dataset = pipeline.build_processed_dataset(
+        asset="btc_usdt",
+        window_size=20,
+        train_split=0.8,
+    )
+    # Check that labels are not in features metadata
+    assert not any(f.startswith("future_return") or f.startswith("next_up") for f in dataset.metadata["features"])
+    # Check that ALL_FEATURE_COLUMNS does not contain labels
+    assert not any(f.startswith("future_return") or f.startswith("next_up") for f in pipeline.ALL_FEATURE_COLUMNS)

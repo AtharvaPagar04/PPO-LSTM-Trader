@@ -4,6 +4,16 @@
 
 The repository has been upgraded from a prototype with ad hoc evaluation into a cleaner research-grade ML/RL project structure.
 
+This project is now effectively closed as an offline research project rather than an active trading-model candidate.
+
+Final conclusion:
+
+```text
+The research framework is successful, but the trading approach is not validated.
+The current LSTM + PPO setup does not show a confirmed tradable timing edge.
+It should not be used for live trading, paper trading, or profitability claims.
+```
+
 The most important change is that evaluation is now deterministic and full-period:
 
 - it starts from the beginning of the held-out test split
@@ -11,7 +21,7 @@ The most important change is that evaluation is now deterministic and full-perio
 - it no longer depends on random environment resets
 - it saves structured artifacts and metrics for each asset
 
-The project remains a research prototype. It is better organized and more trustworthy than before, but it is not a validated trading system.
+The project remains a research prototype. It is better organized and more trustworthy than before, but it is not a validated trading system. See [project_closure.md](project_closure.md) for the final closure summary.
 
 ## What Is Now Fixed
 
@@ -230,8 +240,8 @@ CLI prediction outputs are experimental model signals only and should not be int
 
 ## Recommended Next Steps
 
-1. Add retrain-per-fold walk-forward as a separate, slower evaluation mode.
-2. Run repeated-seed experiments and summarize the variance.
-3. Analyze PPO std/entropy tuning v1 results to determine next steps.
-4. Improve checkpoint/model selection criteria.
-5. Introduce lightweight experiment comparison tooling over `logs/runs/`.
+The recommended next step is no longer more PPO tuning on this version.
+
+1. Stop treating the current 1h OHLCV-based PPO setup as a trading candidate.
+2. If work resumes, start with stronger data and feature research rather than RL tuning.
+3. Revalidate any future feature ideas with supervised walk-forward tests and same-exposure baselines before returning to PPO.

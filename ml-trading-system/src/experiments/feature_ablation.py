@@ -85,6 +85,20 @@ def feature_group_flags(selected_features):
         "rsi_24",
         "drawdown_from_rolling_high_72",
     }
+    cross_asset_features = {
+        "eth_return_1", "sol_return_1", "eth_return_24", "sol_return_24",
+        "eth_return_72", "sol_return_72", "eth_volatility_24", "sol_volatility_24",
+        "eth_btc_return_spread_24", "sol_btc_return_spread_24", "market_avg_return_24",
+        "market_avg_return_72", "market_volatility_24", "btc_relative_strength_24",
+        "btc_relative_strength_72", "eth_btc_correlation_24", "sol_btc_correlation_24"
+    }
+    relative_strength_features = {
+        "btc_relative_strength_24", "btc_relative_strength_72",
+        "eth_btc_return_spread_24", "sol_btc_return_spread_24"
+    }
+    market_regime_features = {
+        "market_avg_return_24", "market_avg_return_72", "market_volatility_24"
+    }
     return {
         "contains_momentum": bool(selected & momentum_features),
         "contains_volatility": bool(selected & volatility_features),
@@ -94,6 +108,9 @@ def feature_group_flags(selected_features):
         "contains_long_horizon_features": bool(selected & long_horizon_features),
         "contains_volatility_regime": "volatility_regime" in selected,
         "contains_drawdown_feature": "drawdown_from_rolling_high_72" in selected,
+        "contains_cross_asset_features": bool(selected & cross_asset_features),
+        "contains_relative_strength_features": bool(selected & relative_strength_features),
+        "contains_market_regime_features": bool(selected & market_regime_features),
     }
 
 

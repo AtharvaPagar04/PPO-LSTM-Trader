@@ -10,6 +10,7 @@ from src.config.feature_ablation_presets import (
     validate_feature_preset,
 )
 from src.experiments.feature_ablation import run_feature_ablation_experiment
+from src.features.pipeline import resolve_selected_features
 
 
 def test_feature_preset_file_loads_and_full_features_exists():
@@ -47,10 +48,37 @@ def test_new_regime_presets_exist_and_validate():
         "regime_trend_v1",
         "regime_volatility_v1",
         "minimal_plus_regime_rsi",
+        "cross_asset_context_v1",
+        "minimal_plus_cross_asset",
+        "cross_asset_regime_v1",
+        "stable_cross_asset_core_v1",
+        "stable_cross_asset_core_v2",
     ]:
         assert preset_name in available
         resolved = resolve_feature_ablation_preset(preset_name)
         assert resolved["features"]
+        assert resolve_selected_features(resolved["features"])
+
+
+def test_stable_cross_asset_core_presets_match_expected_feature_lists():
+    v1 = resolve_feature_ablation_preset("stable_cross_asset_core_v1")
+    v2 = resolve_feature_ablation_preset("stable_cross_asset_core_v2")
+    assert v1["features"] == [
+        "log_return",
+        "trend",
+        "eth_return_24",
+        "eth_return_72",
+        "market_avg_return_24",
+    ]
+    assert v2["features"] == [
+        "log_return",
+        "trend",
+        "eth_return_24",
+        "eth_return_72",
+        "sol_return_24",
+        "sol_return_72",
+        "market_avg_return_24",
+    ]
 
 
 def test_validate_requested_presets_resolves_all_before_training():
