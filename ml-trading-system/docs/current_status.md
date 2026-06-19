@@ -18,8 +18,11 @@ The project remains a research prototype. It is better organized and more trustw
 - asset naming is standardized around `btc_usdt`, `eth_usdt`, and `sol_usdt`
 - legacy asset/file variants are normalized automatically
 - standalone evaluation is now the official reproducible entrypoint
+- a CLI now wraps training, evaluation, and model inference
 - evaluation outputs are saved under `logs/evaluation/`
 - training runs now save structured run metadata under `logs/runs/`
+- prediction outputs can be saved under `logs/predictions/`
+- multi-asset latest-window prediction is available through `predict --all`
 - focused pytest coverage exists for core logic
 - previously empty placeholder model/PPO modules are now implemented
 - unused placeholder files were removed
@@ -122,14 +125,20 @@ The model is profitable or production-ready.
 - portfolio and research demonstration
 - explaining PPO + LSTM trading design
 - controlled experimentation
+- command-line model training/evaluation/inference
+- cross-asset offline prediction from existing checkpoints
 - iteration on feature engineering and evaluation methodology
 
 ### Not ready for
 
 - live trading
 - production deployment
+- exchange execution
+- paper broker workflows
 - strong alpha claims
 - strategy commercialization
+
+CLI prediction outputs are experimental model signals only and should not be interpreted as financial advice or execution instructions.
 
 ## Recommended Next Steps
 

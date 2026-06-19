@@ -71,15 +71,8 @@ def save_legacy_state_dict(path: Path, model):
     torch.save(model.state_dict(), path)
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--asset", default=os.environ.get("DATA_PREFIX", "btc_usdt"))
-    parser.add_argument("--config", default=None)
-    parser.add_argument("--best-checkpoint", default=None)
-    args = parser.parse_args()
-
-    asset = normalize_asset_name(args.asset)
-    config = load_config(*([args.config] if args.config else []))
+def train_asset(asset: str, config: dict, best_checkpoint: str | None = None):
+    asset = normalize_asset_name(asset)
     set_global_seed(config["training"]["seed"])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -104,7 +97,7 @@ def main():
     )
 
     run_dir = create_run_dir(asset)
-    best_path = Path(args.best_checkpoint) if args.best_checkpoint else best_checkpoint_path(asset)
+    best_path = Path(best_checkpoint) if best_checkpoint else best_checkpoint_path(asset)
     final_path = final_checkpoint_path(asset)
 
     run_config = {
@@ -228,6 +221,27 @@ def main():
         f"Evaluation | asset={asset} | final_equity={result['rl_policy']['final_equity']:.4f} | "
         f"sharpe={result['rl_policy']['sharpe']:.2f} | mdd={result['rl_policy']['max_drawdown']:.2%}"
     )
+    return {
+        "asset": asset,
+        "best_checkpoint": str(best_path),
+        "final_checkpoint": str(final_path),
+        "run_dir": str(run_dir),
+        "training_metrics": {
+            "iterations_completed": len(training_rows),
+            "best_reward": best_reward,
+        },
+        "evaluation": result["rl_policy"],
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--asset", default=os.environ.get("DATA_PREFIX", "btc_usdt"))
+    parser.add_argument("--config", default=None)
+    parser.add_argument("--best-checkpoint", default=None)
+    args = parser.parse_args()
+    config = load_config(*([args.config] if args.config else []))
+    train_asset(args.asset, config, best_checkpoint=args.best_checkpoint)
 
 
 if __name__ == "__main__":

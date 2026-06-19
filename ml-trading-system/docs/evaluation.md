@@ -63,6 +63,22 @@ All of them use the same transaction cost assumption configured for the environm
 ./venv/bin/python src/evaluate.py --all
 ```
 
+The same evaluation flow is also available through the CLI:
+
+```bash
+./venv/bin/python -m src.cli evaluate --asset btc_usdt
+./venv/bin/python -m src.cli evaluate --all
+```
+
+The CLI also provides deterministic latest-window inference:
+
+```bash
+./venv/bin/python -m src.cli predict --asset btc_usdt
+./venv/bin/python -m src.cli predict --all
+```
+
+The `predict --all` command runs latest-window deterministic inference for every supported asset using existing checkpoints and data. It does not execute trades or connect to an exchange.
+
 ## Output Files
 
 Per asset:
@@ -121,3 +137,5 @@ This separation is intentional and should be preserved.
 - The evaluator assumes a single fixed transaction cost model.
 - Results remain checkpoint-dependent.
 - Full-period deterministic evaluation improves trustworthiness, but it does not replace broader validation like walk-forward analysis.
+- CLI evaluation is still offline model evaluation only; it does not connect to exchanges or place trades.
+- CLI prediction outputs are experimental model signals only and should not be interpreted as financial advice or execution instructions.

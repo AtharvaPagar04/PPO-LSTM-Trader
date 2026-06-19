@@ -19,6 +19,18 @@ def print_result(result):
     )
 
 
+def evaluate_assets(assets, config, checkpoint=None):
+    results = []
+    for asset in assets:
+        result, _, _ = evaluate_asset(
+            asset=asset,
+            config=config,
+            checkpoint=checkpoint if len(assets) == 1 else None,
+        )
+        results.append(result)
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--asset", type=str, default=None)
@@ -28,24 +40,19 @@ def main():
     args = parser.parse_args()
 
     config = load_config(*( [args.config] if args.config else [] ))
-    results = []
-
     assets = SUPPORTED_ASSETS if args.all else [normalize_asset_name(args.asset or "btc_usdt")]
-    for asset in assets:
-        try:
-            result, _, _ = evaluate_asset(
-                asset=asset,
-                config=config,
-                checkpoint=args.checkpoint if not args.all else None,
-            )
-        except FileNotFoundError as exc:
-            print(f"[ERROR] {asset}: {exc}")
-            if not args.all:
-                raise SystemExit(1) from exc
-            continue
+    try:
+        results = evaluate_assets(
+            assets=assets,
+            config=config,
+            checkpoint=args.checkpoint if not args.all else None,
+        )
+    except FileNotFoundError as exc:
+        print(f"[ERROR] {exc}")
+        raise SystemExit(1) from exc
 
+    for result in results:
         print_result(result)
-        results.append(result)
 
     if args.all and results:
         write_summary(results)

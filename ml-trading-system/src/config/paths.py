@@ -14,6 +14,7 @@ MODELS_DIR = BASE_DIR / "models"
 LOGS_DIR = BASE_DIR / "logs"
 RUNS_DIR = LOGS_DIR / "runs"
 EVALUATION_DIR = LOGS_DIR / "evaluation"
+PREDICTIONS_DIR = LOGS_DIR / "predictions"
 DOCS_DIR = BASE_DIR / "docs"
 
 

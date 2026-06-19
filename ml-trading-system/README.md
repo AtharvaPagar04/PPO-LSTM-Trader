@@ -175,6 +175,87 @@ These files store the current default values for:
 ./venv/bin/python src/evaluate.py --all
 ```
 
+## CLI Usage
+
+The project now includes a CLI entrypoint:
+
+```bash
+./venv/bin/python -m src.cli <command>
+```
+
+### Train one asset
+
+```bash
+./venv/bin/python -m src.cli train --asset btc_usdt
+```
+
+### Train all assets
+
+```bash
+./venv/bin/python -m src.cli train --all
+```
+
+### Evaluate one asset
+
+```bash
+./venv/bin/python -m src.cli evaluate --asset btc_usdt
+```
+
+### Evaluate all assets
+
+```bash
+./venv/bin/python -m src.cli evaluate --all
+```
+
+### Predict from the latest available window
+
+```bash
+./venv/bin/python -m src.cli predict --asset btc_usdt
+```
+
+### Predict for all supported assets
+
+```bash
+./venv/bin/python -m src.cli predict --all
+```
+
+### Predict for a selected subset of assets
+
+```bash
+./venv/bin/python -m src.cli predict --assets btc_usdt eth_usdt
+```
+
+### Predict from a custom CSV
+
+```bash
+./venv/bin/python -m src.cli predict --asset btc_usdt --csv data/raw/BTCUSDT_1h.csv
+```
+
+### Predict with JSON output
+
+```bash
+./venv/bin/python -m src.cli predict --asset btc_usdt --format json
+./venv/bin/python -m src.cli predict --all --format json
+```
+
+### Save prediction output
+
+```bash
+./venv/bin/python -m src.cli predict --asset btc_usdt --save
+./venv/bin/python -m src.cli predict --all --save
+```
+
+### Use a custom checkpoint
+
+```bash
+./venv/bin/python -m src.cli predict --asset btc_usdt --checkpoint models/btc_usdt_best.pt
+./venv/bin/python -m src.cli evaluate --asset btc_usdt --checkpoint models/btc_usdt_best.pt
+```
+
+The CLI prediction command returns the model's inferred target exposure from the latest feature window. It is not an order execution system and should not be interpreted as financial advice.
+
+The `predict --all` command runs latest-window deterministic inference for every supported asset using existing checkpoints and data. It does not execute trades or connect to an exchange.
+
 ## Deterministic Evaluation
 
 Training and evaluation now use different execution modes:
@@ -216,6 +297,13 @@ logs/runs/{timestamp}_{asset}/
 ```
 
 including config, training log, evaluation metrics, and a run-specific equity plot.
+
+Prediction outputs can be saved under:
+
+```text
+logs/predictions/{timestamp}_{asset}_prediction.json
+logs/predictions/{timestamp}_all_predictions.json
+```
 
 ## Test Coverage
 
