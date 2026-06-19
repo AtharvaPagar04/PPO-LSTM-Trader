@@ -8,7 +8,7 @@ from src.features.pipeline import add_cross_asset_features, CROSS_ASSET_FEATURE_
 
 @pytest.fixture
 def synthetic_dfs():
-    dates = pd.date_range("2020-01-01", periods=100, freq="H")
+    dates = pd.date_range("2020-01-01", periods=100, freq="h")
     
     # Target BTC df
     btc_df = pd.DataFrame({
@@ -77,7 +77,7 @@ def test_timestamp_alignment_is_stable(mock_resolve, mock_load, synthetic_dfs):
     btc_df, eth_df, sol_df = synthetic_dfs
     
     # Misalign ETH df by removing first 5 rows and adding 5 new rows at the end
-    dates = pd.date_range("2020-01-01", periods=105, freq="H")
+    dates = pd.date_range("2020-01-01", periods=105, freq="h")
     eth_df_shifted = pd.DataFrame({
         "timestamp": dates[5:],
         "close": np.linspace(100, 500, 100)

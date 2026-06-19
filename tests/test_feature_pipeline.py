@@ -5,7 +5,7 @@ import src.features.pipeline as pipeline
 
 
 def make_raw_df(rows=180):
-    timestamps = pd.date_range("2024-01-01", periods=rows, freq="H")
+    timestamps = pd.date_range("2024-01-01", periods=rows, freq="h")
     close = np.linspace(100.0, 140.0, rows)
     return pd.DataFrame(
         {
