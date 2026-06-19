@@ -21,6 +21,7 @@ from src.config.paths import (
 from src.config.settings import load_config
 from src.data.dataset import load_metadata, load_processed_data
 from src.evaluation.benchmark import evaluate_asset
+from src.features.pipeline import ProcessedDataset
 from src.models.policy import LSTMPolicy
 from src.ppo.ppo_trainer import PPOTrainer
 from src.utils.logger import create_run_dir, get_git_commit, write_csv, write_json
@@ -41,6 +42,10 @@ def build_env(feature_windows, price_windows, config):
         action_change_penalty=env_cfg["action_change_penalty"],
         reward_scale=env_cfg["reward_scale"],
         reward_clip=env_cfg["reward_clip"],
+        exposure_penalty_coef=env_cfg.get("exposure_penalty_coef", 0.0),
+        turnover_penalty_coef=env_cfg.get("turnover_penalty_coef", 0.0),
+        directional_reward_coef=env_cfg.get("directional_reward_coef", 0.0),
+        volatility_exposure_penalty_coef=env_cfg.get("volatility_exposure_penalty_coef", 0.0),
     )
 
 
@@ -76,14 +81,28 @@ def save_legacy_state_dict(path: Path, model):
     torch.save(model.state_dict(), path)
 
 
-def train_asset(asset: str, config: dict, best_checkpoint: str | None = None, run_dir: str | Path | None = None, final_checkpoint: str | None = None):
+def train_asset(
+    asset: str,
+    config: dict,
+    best_checkpoint: str | None = None,
+    run_dir: str | Path | None = None,
+    final_checkpoint: str | None = None,
+    processed_dataset: ProcessedDataset | None = None,
+):
     asset = normalize_asset_name(asset)
     set_global_seed(config["training"]["seed"])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    train_X, train_price = load_processed_data(asset, "train")
-    test_X, test_price = load_processed_data(asset, "test")
-    metadata = load_metadata(asset)
+    if processed_dataset is not None:
+        train_X = processed_dataset.train_windows
+        train_price = processed_dataset.train_price_windows
+        test_X = processed_dataset.test_windows
+        test_price = processed_dataset.test_price_windows
+        metadata = processed_dataset.metadata
+    else:
+        train_X, train_price = load_processed_data(asset, "train")
+        test_X, test_price = load_processed_data(asset, "test")
+        metadata = load_metadata(asset)
 
     env = build_env(train_X, train_price, config)
     model = build_model(train_X.shape[2], config, device)
@@ -259,6 +278,7 @@ def train_asset(asset: str, config: dict, best_checkpoint: str | None = None, ru
         config=config,
         checkpoint=str(best_path),
         output_dir=eval_dir,
+        processed_dataset=processed_dataset,
     )
     write_json(run_dir / "evaluation_metrics.json", result)
     shutil.copyfile(eval_dir / "equity_curve.png", run_dir / "equity_curve.png")

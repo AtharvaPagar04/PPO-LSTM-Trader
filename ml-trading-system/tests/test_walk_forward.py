@@ -71,13 +71,24 @@ def test_baseline_comparison_returns_required_strategies_and_is_deterministic():
         price_windows,
         transaction_cost=0.001,
         seed=42,
+        reference_actions=np.full(len(price_windows) - 1, -0.1, dtype=np.float32),
     )
     traces_2, metrics_2 = evaluate_baselines_on_fold(
         price_windows,
         transaction_cost=0.001,
         seed=42,
+        reference_actions=np.full(len(price_windows) - 1, -0.1, dtype=np.float32),
     )
-    assert set(metrics_1) >= {"always_long", "always_short", "always_flat", "random", "buy_and_hold"}
+    assert set(metrics_1) >= {
+        "always_long",
+        "always_short",
+        "always_flat",
+        "random",
+        "buy_and_hold",
+        "constant_signed_mean_action",
+        "constant_abs_mean_long",
+        "constant_abs_mean_short",
+    }
     assert np.allclose(traces_1["random"]["equity"], traces_2["random"]["equity"])
     assert metrics_1["always_flat"]["turnover"] == pytest.approx(0.0)
     assert metrics_1["always_long"]["number_of_steps"] == metrics_2["always_long"]["number_of_steps"]
@@ -102,6 +113,9 @@ def test_compare_fold_strategies_computes_ranks_and_beats():
             "always_short": {"final_equity": 0.99, "total_return": -0.01, "sharpe": -0.2, "max_drawdown": 0.01},
             "always_flat": {"final_equity": 1.0, "total_return": 0.0, "sharpe": 0.0, "max_drawdown": 0.0},
             "random": {"final_equity": 1.02, "total_return": 0.02, "sharpe": 0.3, "max_drawdown": 0.04},
+            "constant_signed_mean_action": {"final_equity": 1.01, "total_return": 0.01, "sharpe": 0.2, "max_drawdown": 0.03},
+            "constant_abs_mean_long": {"final_equity": 1.01, "total_return": 0.01, "sharpe": 0.2, "max_drawdown": 0.03},
+            "constant_abs_mean_short": {"final_equity": 0.99, "total_return": -0.01, "sharpe": -0.2, "max_drawdown": 0.02},
         },
     )
     assert row["best_strategy_by_return"] == "rl_policy"
@@ -130,10 +144,13 @@ def test_compare_fold_ties_are_deterministic():
             "always_short": {"final_equity": 1.0, "total_return": 0.0, "sharpe": 0.0, "max_drawdown": 0.0},
             "always_flat": {"final_equity": 1.0, "total_return": 0.0, "sharpe": 0.0, "max_drawdown": 0.0},
             "random": {"final_equity": 1.0, "total_return": 0.0, "sharpe": 0.0, "max_drawdown": 0.0},
+            "constant_signed_mean_action": {"final_equity": 1.0, "total_return": 0.0, "sharpe": 0.0, "max_drawdown": 0.0},
+            "constant_abs_mean_long": {"final_equity": 1.0, "total_return": 0.0, "sharpe": 0.0, "max_drawdown": 0.0},
+            "constant_abs_mean_short": {"final_equity": 1.0, "total_return": 0.0, "sharpe": 0.0, "max_drawdown": 0.0},
         },
     )
     assert row["best_strategy_by_return"] == "always_flat"
-    assert row["rl_rank_by_return"] == 5
+    assert row["rl_rank_by_return"] == 8
 
 
 def test_aggregate_baseline_comparison_counts_and_ratios():
@@ -151,12 +168,21 @@ def test_aggregate_baseline_comparison_counts_and_ratios():
             "always_flat_sharpe": 0.0,
             "random_total_return": 0.01,
             "random_sharpe": 0.1,
+            "constant_signed_mean_action_total_return": 0.02,
+            "constant_signed_mean_action_sharpe": 0.2,
+            "constant_abs_mean_long_total_return": 0.03,
+            "constant_abs_mean_long_sharpe": 0.3,
+            "constant_abs_mean_short_total_return": -0.02,
+            "constant_abs_mean_short_sharpe": -0.2,
             "best_strategy_by_return": "rl_policy",
             "best_strategy_by_sharpe": "rl_policy",
             "rl_beat_always_long": True,
             "rl_beat_always_short": True,
             "rl_beat_always_flat": True,
             "rl_beat_random": True,
+            "rl_beat_constant_signed_mean_action": True,
+            "rl_beat_constant_abs_mean_long": True,
+            "rl_beat_constant_abs_mean_short": True,
         },
         {
             "asset": "btc_usdt",
@@ -171,17 +197,46 @@ def test_aggregate_baseline_comparison_counts_and_ratios():
             "always_flat_sharpe": 0.0,
             "random_total_return": -0.03,
             "random_sharpe": -0.4,
+            "constant_signed_mean_action_total_return": -0.01,
+            "constant_signed_mean_action_sharpe": -0.1,
+            "constant_abs_mean_long_total_return": 0.01,
+            "constant_abs_mean_long_sharpe": 0.2,
+            "constant_abs_mean_short_total_return": -0.01,
+            "constant_abs_mean_short_sharpe": -0.1,
             "best_strategy_by_return": "always_long",
             "best_strategy_by_sharpe": "always_long",
             "rl_beat_always_long": False,
             "rl_beat_always_short": False,
             "rl_beat_always_flat": False,
             "rl_beat_random": True,
+            "rl_beat_constant_signed_mean_action": False,
+            "rl_beat_constant_abs_mean_long": False,
+            "rl_beat_constant_abs_mean_short": False,
         },
     ]
     aggregate = aggregate_baseline_comparisons(rows)
     assert aggregate["rl_best_return_fold_count"] == 1
     assert aggregate["rl_beat_always_long_count"] == 1
     assert aggregate["rl_beat_random_count"] == 2
+    assert aggregate["rl_beat_constant_signed_mean_action_count"] == 1
     assert aggregate["rl_beat_random_ratio"] == pytest.approx(1.0)
     assert aggregate["best_overall_strategy_by_mean_return"] == "rl_policy"
+
+
+def test_evaluate_walk_forward_asset_raises_value_error_on_mismatch():
+    """Guard fires early (before model loading) when test_X length != timestamps length."""
+    from src.evaluation.walk_forward import evaluate_walk_forward_asset
+    from unittest.mock import patch
+
+    # test_X has 10 rows but timestamps has only 5 → mismatch
+    with patch("src.evaluation.walk_forward.load_processed_data", return_value=(np.zeros((10, 5, 2)), np.zeros((10, 5)))), \
+         patch("src.evaluation.walk_forward.load_metadata", return_value={"window_size": 2, "split_ratio": 0.8}), \
+         patch("src.evaluation.walk_forward._window_end_timestamps", return_value=[pd.Timestamp("2026-01-01")] * 5):
+
+        with pytest.raises(ValueError, match="Walk-forward timestamp/index mismatch"):
+            evaluate_walk_forward_asset(
+                asset="btc_usdt",
+                config={"evaluation": {"random_seed": 42}},
+                checkpoint=None,
+            )
+

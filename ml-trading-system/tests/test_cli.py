@@ -207,6 +207,13 @@ def test_cli_routes_single_asset_diagnose():
             "long_ratio": 0.1,
             "short_ratio": 0.1,
             "flat_ratio": 0.8,
+            "flat_ratio_001": 0.1,
+            "flat_ratio_005": 0.2,
+            "flat_ratio_010": 0.3,
+            "flat_ratio_025": 0.5,
+            "long_ratio_010": 0.1,
+            "short_ratio_010": 0.1,
+            "dominant_action_side": "mostly_flat",
             "strong_long_ratio": 0.0,
             "strong_short_ratio": 0.0,
             "average_position": 0.0,
@@ -280,6 +287,8 @@ def test_experiment_help_works():
     result = run_cli("experiment", "--help")
     assert result.returncode == 0
     assert "reward" in result.stdout
+    assert "feature-ablation" in result.stdout
+    assert "seed-validation" in result.stdout
 
 
 def test_experiment_reward_help_works():
@@ -353,4 +362,269 @@ def test_experiment_training_signal_routes_correctly():
     assert exit_code == 0
     mock_exp.assert_called_once()
     assert mock_exp.call_args[0][0] == "btc_usdt"
+    assert mock_exp.call_args.kwargs["quick"] is True
+
+
+def test_experiment_feature_ablation_help_works():
+    result = run_cli("experiment", "feature-ablation", "--help")
+    assert result.returncode == 0
+    assert "--presets" in result.stdout
+
+
+def test_experiment_feature_ablation_all_fails():
+    result = run_cli("experiment", "feature-ablation", "--all")
+    assert result.returncode != 0
+    assert "Feature ablation experiments currently support one asset at a time." in result.stderr
+
+
+def test_experiment_feature_ablation_routes_correctly():
+    fake_result = {
+        "experiment_dir": "logs/experiments/fake",
+        "best_by_score": "full_features",
+        "best_by_walk_forward_sharpe": "full_features",
+        "best_by_baseline_wins": "full_features",
+        "best_by_low_drawdown": "full_features",
+        "best_by_low_flat_ratio": "price_action_minimal",
+        "summary": [],
+    }
+    from unittest.mock import patch
+    import src.cli as cli
+
+    with patch("src.experiments.feature_ablation.run_feature_ablation_experiment", return_value=fake_result) as mock_exp:
+        exit_code = cli.main(
+            ["experiment", "feature-ablation", "--asset", "btc_usdt", "--quick", "--presets", "full_features", "price_action_minimal"]
+        )
+    assert exit_code == 0
+    mock_exp.assert_called_once()
+    assert mock_exp.call_args[0][0] == "btc_usdt"
+    assert mock_exp.call_args[0][2] == ["full_features", "price_action_minimal"]
+    assert mock_exp.call_args.kwargs["quick"] is True
+
+
+def test_experiment_feature_ablation_unknown_preset_fails():
+    result = run_cli(
+        "experiment",
+        "feature-ablation",
+        "--asset",
+        "btc_usdt",
+        "--presets",
+        "price_action_minimal",
+        "missing_preset",
+    )
+    assert result.returncode != 0
+    assert "Unknown feature ablation preset: missing_preset" in result.stderr
+    assert "Available presets:" in result.stderr
+
+
+def test_experiment_feature_ablation_new_regime_preset_routes_correctly():
+    fake_result = {"experiment_dir": "logs/experiments/fake", "summary": []}
+    from unittest.mock import patch
+    import src.cli as cli
+
+    with patch(
+        "src.experiments.feature_ablation.run_feature_ablation_experiment",
+        return_value=fake_result,
+    ) as mock_exp:
+        exit_code = cli.main(
+            [
+                "experiment",
+                "feature-ablation",
+                "--asset",
+                "btc_usdt",
+                "--quick",
+                "--presets",
+                "price_action_minimal",
+                "minimal_plus_regime",
+                "regime_trend_v1",
+            ]
+        )
+    assert exit_code == 0
+    assert mock_exp.call_args[0][2] == [
+        "price_action_minimal",
+        "minimal_plus_regime",
+        "regime_trend_v1",
+    ]
+
+
+def test_experiment_seed_validation_help_works():
+    result = run_cli("experiment", "seed-validation", "--help")
+    assert result.returncode == 0
+    assert "--feature-presets" in result.stdout
+    assert "--seeds" in result.stdout
+
+
+def test_experiment_seed_validation_all_fails():
+    result = run_cli("experiment", "seed-validation", "--all")
+    assert result.returncode != 0
+    assert "Repeated seed validation currently supports one asset at a time." in result.stderr
+
+
+def test_experiment_seed_validation_invalid_preset_fails():
+    result = run_cli(
+        "experiment",
+        "seed-validation",
+        "--asset",
+        "btc_usdt",
+        "--feature-presets",
+        "unknown_preset",
+    )
+    assert result.returncode != 0
+    assert "Unknown feature ablation preset" in result.stderr
+    assert "Available presets:" in result.stderr
+
+
+def test_experiment_seed_validation_routes_correctly():
+    fake_result = {
+        "experiment_dir": "logs/experiments/fake",
+        "summary": [],
+        "aggregate_summary": [],
+        "winner_counts": {},
+    }
+    from unittest.mock import patch
+    import src.cli as cli
+
+    with patch(
+        "src.experiments.seed_validation.run_seed_validation_experiment",
+        return_value=fake_result,
+    ) as mock_exp:
+        exit_code = cli.main(
+            [
+                "experiment",
+                "seed-validation",
+                "--asset",
+                "btc_usdt",
+                "--quick",
+                "--feature-presets",
+                "full_features",
+                "price_action_minimal",
+                "--seeds",
+                "42",
+                "43",
+                "44",
+            ]
+        )
+    assert exit_code == 0
+    mock_exp.assert_called_once()
+    assert mock_exp.call_args[0][0] == "btc_usdt"
+    assert mock_exp.call_args.kwargs["feature_presets"] == [
+        "full_features",
+        "price_action_minimal",
+    ]
+    assert mock_exp.call_args.kwargs["seeds"] == [42, 43, 44]
+    assert mock_exp.call_args.kwargs["quick"] is True
+
+
+def test_experiment_seed_validation_new_regime_preset_routes_correctly():
+    fake_result = {
+        "experiment_dir": "logs/experiments/fake",
+        "summary": [],
+        "aggregate_summary": [],
+        "winner_counts": {},
+    }
+    from unittest.mock import patch
+    import src.cli as cli
+
+    with patch(
+        "src.experiments.seed_validation.run_seed_validation_experiment",
+        return_value=fake_result,
+    ) as mock_exp:
+        exit_code = cli.main(
+            [
+                "experiment",
+                "seed-validation",
+                "--asset",
+                "btc_usdt",
+                "--quick",
+                "--feature-presets",
+                "price_action_minimal",
+                "minimal_plus_regime",
+                "--seeds",
+                "42",
+                "43",
+                "44",
+            ]
+        )
+    assert exit_code == 0
+    assert mock_exp.call_args.kwargs["feature_presets"] == [
+        "price_action_minimal",
+        "minimal_plus_regime",
+    ]
+
+
+def test_experiment_action_mapping_help_works():
+    result = run_cli("experiment", "action-mapping", "--help")
+    assert result.returncode == 0
+    assert "--feature-preset" in result.stdout
+    assert "--scales" in result.stdout
+
+
+def test_experiment_action_mapping_invalid_preset_fails():
+    result = run_cli(
+        "experiment",
+        "action-mapping",
+        "--asset",
+        "btc_usdt",
+        "--feature-preset",
+        "missing_preset",
+    )
+    assert result.returncode != 0
+    assert "Unknown feature ablation preset" in result.stderr
+
+
+def test_experiment_action_mapping_routes_correctly():
+    fake_result = {
+        "experiment_dir": "logs/experiments/fake",
+        "scale_rows": [],
+        "diagnostics": {},
+        "best_by_sharpe": 1.0,
+    }
+    from unittest.mock import patch
+    import src.cli as cli
+
+    with patch(
+        "src.experiments.action_mapping.run_action_mapping_experiment",
+        return_value=fake_result,
+    ) as mock_exp:
+        exit_code = cli.main(
+            [
+                "experiment",
+                "action-mapping",
+                "--asset",
+                "btc_usdt",
+                "--quick",
+                "--feature-preset",
+                "price_action_minimal",
+                "--scales",
+                "1",
+                "2",
+                "3",
+            ]
+        )
+    assert exit_code == 0
+    assert mock_exp.call_args.kwargs["feature_preset"] == "price_action_minimal"
+    assert mock_exp.call_args.kwargs["scales"] == [1.0, 2.0, 3.0]
+    assert mock_exp.call_args.kwargs["quick"] is True
+
+def test_experiment_objective_calibration_routes_correctly():
+    fake_result = {"experiment_dir": "logs/experiments/fake", "summary": []}
+    from unittest.mock import patch
+    import src.cli as cli
+
+    with patch("src.experiments.objective_calibration.run_objective_calibration_experiment", return_value=fake_result) as mock_exp:
+        exit_code = cli.main(
+            [
+                "experiment",
+                "objective-calibration",
+                "--asset",
+                "btc_usdt",
+                "--presets",
+                "current",
+                "exposure_penalty_light",
+                "--quick",
+            ]
+        )
+    assert exit_code == 0
+    mock_exp.assert_called_once()
+    assert mock_exp.call_args[0][0] == "btc_usdt"
+    assert mock_exp.call_args.kwargs["presets"] == ["current", "exposure_penalty_light"]
     assert mock_exp.call_args.kwargs["quick"] is True

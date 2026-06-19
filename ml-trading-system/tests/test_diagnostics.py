@@ -2,7 +2,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.evaluation.diagnostics import format_diagnostics_table, summarize_diagnostic_trace
+from src.evaluation.diagnostics import (
+    classify_dominant_action_side,
+    compute_action_distribution,
+    compute_reporting_threshold_metrics,
+    compute_directional_signal_diagnostics,
+    compute_threshold_sensitivity,
+    format_diagnostics_table,
+    summarize_diagnostic_trace,
+)
 
 
 def make_trace_df():
@@ -102,7 +110,12 @@ def test_diagnostics_summary_contains_required_keys():
         "num_steps",
         "action_mean",
         "average_abs_action",
+        "action_abs_p95",
         "flat_ratio",
+        "flat_ratio_001",
+        "flat_ratio_005",
+        "flat_ratio_010",
+        "flat_ratio_025",
         "policy_std_mean",
         "pnl_sum",
         "transaction_cost_sum",
@@ -124,7 +137,7 @@ def test_action_ratios_sum_to_one_and_non_negative_fields_hold():
         metadata={"window_size": 20, "features": ["a"]},
         checkpoint_path="models/btc_usdt_model.pth",
     )
-    ratio_sum = summary["long_ratio"] + summary["short_ratio"] + summary["flat_ratio"]
+    ratio_sum = summary["long_ratio_025"] + summary["short_ratio_025"] + summary["flat_ratio_025"]
     assert ratio_sum == pytest.approx(1.0)
     assert summary["average_abs_action"] >= 0.0
     assert summary["turnover"] >= 0.0
@@ -144,6 +157,59 @@ def test_policy_std_and_penalty_fields_are_present():
     assert summary["position_penalty_sum"] >= 0.0
     assert summary["drawdown_penalty_sum"] >= 0.0
     assert summary["action_change_penalty_sum"] >= 0.0
+
+
+def test_threshold_sensitivity_computes_expected_ratios():
+    rows = compute_threshold_sensitivity(np.array([-0.02, 0.0, 0.03, 0.2]), thresholds=[0.01])
+    assert rows[0]["flat_ratio"] == pytest.approx(0.25)
+    assert rows[0]["long_ratio"] == pytest.approx(0.5)
+    assert rows[0]["short_ratio"] == pytest.approx(0.25)
+    assert rows[0]["num_nonflat_steps"] == 3
+
+
+def test_reporting_threshold_metrics_match_expected_levels():
+    metrics = compute_reporting_threshold_metrics(np.array([-0.2, -0.02, 0.0, 0.03, 0.2]))
+    assert metrics["flat_ratio_001"] == pytest.approx(0.2)
+    assert metrics["flat_ratio_005"] == pytest.approx(0.6)
+    assert metrics["flat_ratio_010"] == pytest.approx(0.6)
+    assert metrics["flat_ratio_025"] == pytest.approx(1.0)
+
+
+def test_action_distribution_computes_quantiles_and_near_zero():
+    distribution = compute_action_distribution(np.array([-0.2, -0.01, 0.0, 0.03, 0.2]))
+    assert distribution["action_abs_median"] == pytest.approx(0.03)
+    assert distribution["near_zero_action_ratio_001"] == pytest.approx(0.4)
+    assert distribution["near_zero_action_ratio_005"] == pytest.approx(0.6)
+    assert distribution["histogram_buckets"]
+
+
+def test_dominant_action_side_classification():
+    assert classify_dominant_action_side(
+        positive_action_ratio=0.0,
+        negative_action_ratio=1.0,
+        action_abs_mean=0.07,
+    ) == "mostly_short"
+    assert classify_dominant_action_side(
+        positive_action_ratio=0.85,
+        negative_action_ratio=0.05,
+        action_abs_mean=0.07,
+    ) == "mostly_long"
+    assert classify_dominant_action_side(
+        positive_action_ratio=0.45,
+        negative_action_ratio=0.35,
+        action_abs_mean=0.07,
+    ) == "mixed"
+    assert classify_dominant_action_side(
+        positive_action_ratio=0.0,
+        negative_action_ratio=0.0,
+        action_abs_mean=0.005,
+    ) == "near_zero"
+
+
+def test_directional_signal_diagnostics_handle_zero_actions():
+    directional = compute_directional_signal_diagnostics(make_trace_df(), action_threshold=0.95)
+    assert directional["sign_accuracy_nonzero"] == 0.0
+    assert "pnl_by_action_bucket" in directional
 
 
 def test_diagnostics_table_formats_multiple_assets():

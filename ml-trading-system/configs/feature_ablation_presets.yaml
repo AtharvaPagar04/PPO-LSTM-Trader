@@ -1,0 +1,160 @@
+{
+  "full_features": {
+    "description": "Current default feature set.",
+    "features": [
+      "log_return",
+      "volatility_10",
+      "volatility_20",
+      "momentum_5",
+      "momentum_10",
+      "trend",
+      "rsi",
+      "body_ratio",
+      "range_pct",
+      "vol_z"
+    ]
+  },
+  "no_candle_features": {
+    "description": "Remove candle shape features.",
+    "features": [
+      "log_return",
+      "volatility_10",
+      "volatility_20",
+      "momentum_5",
+      "momentum_10",
+      "trend",
+      "rsi",
+      "vol_z"
+    ]
+  },
+  "no_volume_feature": {
+    "description": "Remove volume z-score feature.",
+    "features": [
+      "log_return",
+      "volatility_10",
+      "volatility_20",
+      "momentum_5",
+      "momentum_10",
+      "trend",
+      "rsi",
+      "body_ratio",
+      "range_pct"
+    ]
+  },
+  "no_redundant_momentum": {
+    "description": "Remove momentum_5 while keeping momentum_10.",
+    "features": [
+      "log_return",
+      "volatility_10",
+      "volatility_20",
+      "momentum_10",
+      "trend",
+      "rsi",
+      "body_ratio",
+      "range_pct",
+      "vol_z"
+    ]
+  },
+  "trend_momentum_only": {
+    "description": "Keep directional and trend-oriented features.",
+    "features": [
+      "log_return",
+      "momentum_5",
+      "momentum_10",
+      "trend",
+      "rsi"
+    ]
+  },
+  "volatility_momentum": {
+    "description": "Directional features plus volatility context.",
+    "features": [
+      "log_return",
+      "momentum_5",
+      "momentum_10",
+      "trend",
+      "rsi",
+      "volatility_10",
+      "volatility_20"
+    ]
+  },
+  "price_action_minimal": {
+    "description": "Small directional baseline feature set.",
+    "features": [
+      "log_return",
+      "momentum_10",
+      "trend",
+      "rsi"
+    ]
+  },
+  "regime_trend_v1": {
+    "description": "Longer-horizon trend and regime context without candle-shape noise.",
+    "features": [
+      "log_return",
+      "momentum_10",
+      "trend",
+      "rsi",
+      "return_24",
+      "return_72",
+      "ma_ratio_24_72",
+      "ma_slope_24",
+      "ma_slope_72",
+      "trend_strength_24",
+      "drawdown_from_rolling_high_72"
+    ]
+  },
+  "regime_volatility_v1": {
+    "description": "Longer-horizon volatility regime context.",
+    "features": [
+      "log_return",
+      "volatility_24",
+      "volatility_72",
+      "volatility_regime",
+      "trend_strength_24",
+      "drawdown_from_rolling_high_72"
+    ]
+  },
+  "minimal_plus_regime": {
+    "description": "Price-action minimal set with longer-horizon regime features.",
+    "features": [
+      "log_return",
+      "momentum_10",
+      "trend",
+      "rsi",
+      "return_24",
+      "return_72",
+      "volatility_24",
+      "volatility_72",
+      "ma_ratio_24_72",
+      "trend_strength_24",
+      "volatility_regime",
+      "drawdown_from_rolling_high_72"
+    ]
+  },
+  "minimal_plus_regime_rsi": {
+    "description": "Price-action minimal set with longer-horizon regime and slower RSI context.",
+    "features": [
+      "log_return",
+      "momentum_10",
+      "trend",
+      "rsi",
+      "rsi_24",
+      "return_24",
+      "return_72",
+      "volatility_24",
+      "volatility_72",
+      "ma_ratio_24_72",
+      "trend_strength_24",
+      "volatility_regime",
+      "drawdown_from_rolling_high_72"
+    ]
+  },
+  "volatility_only": {
+    "description": "Volatility and market activity features only.",
+    "features": [
+      "volatility_10",
+      "volatility_20",
+      "range_pct",
+      "vol_z"
+    ]
+  }
+}

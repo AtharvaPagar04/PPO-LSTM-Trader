@@ -8,6 +8,12 @@ BASELINE_STRATEGIES = (
     "random",
 )
 
+EXPOSURE_EQUIVALENT_BASELINES = (
+    "constant_signed_mean_action",
+    "constant_abs_mean_long",
+    "constant_abs_mean_short",
+)
+
 
 def compute_market_returns(price_windows):
     curr = price_windows[:-1, -1, 3]
@@ -63,12 +69,32 @@ def simulate_positions(price_windows, positions, transaction_cost):
     return {key: np.asarray(value) for key, value in trace.items()}
 
 
-def run_baselines(price_windows, transaction_cost, seed):
+def build_exposure_equivalent_positions(reference_actions):
+    reference_actions = np.asarray(reference_actions, dtype=np.float32)
+    mean_action = float(np.mean(reference_actions)) if len(reference_actions) else 0.0
+    abs_mean_action = (
+        float(np.mean(np.abs(reference_actions))) if len(reference_actions) else 0.0
+    )
+    positions = {
+        "constant_signed_mean_action": np.full(
+            len(reference_actions), mean_action, dtype=np.float32
+        ),
+        "constant_abs_mean_long": np.full(
+            len(reference_actions), abs_mean_action, dtype=np.float32
+        ),
+        "constant_abs_mean_short": np.full(
+            len(reference_actions), -abs_mean_action, dtype=np.float32
+        ),
+    }
+    return positions
+
+
+def run_baselines(price_windows, transaction_cost, seed, reference_actions=None):
     steps = len(price_windows) - 1
     rng = np.random.default_rng(seed)
     random_positions = rng.uniform(-1.0, 1.0, size=steps).astype(np.float32)
 
-    return {
+    traces = {
         "always_long": simulate_positions(
             price_windows, np.ones(steps, dtype=np.float32), transaction_cost
         ),
@@ -84,3 +110,7 @@ def run_baselines(price_windows, transaction_cost, seed):
             price_windows, np.ones(steps, dtype=np.float32), transaction_cost
         ),
     }
+    if reference_actions is not None:
+        for name, positions in build_exposure_equivalent_positions(reference_actions).items():
+            traces[name] = simulate_positions(price_windows, positions, transaction_cost)
+    return traces

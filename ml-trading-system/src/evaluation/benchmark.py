@@ -11,6 +11,7 @@ from src.evaluation.baselines import run_baselines
 from src.evaluation.metrics import compute_performance_metrics
 from src.evaluation.plot import plot_equity_curves
 from src.evaluation.utils import write_trace_csv
+from src.features.pipeline import ProcessedDataset
 from src.models.policy import LSTMPolicy
 from src.utils.logger import write_json
 from src.utils.seed import set_global_seed
@@ -71,15 +72,31 @@ def build_eval_env(feature_windows, price_windows, config):
         action_change_penalty=env_cfg["action_change_penalty"],
         reward_scale=env_cfg["reward_scale"],
         reward_clip=env_cfg["reward_clip"],
+        exposure_penalty_coef=env_cfg.get("exposure_penalty_coef", 0.0),
+        turnover_penalty_coef=env_cfg.get("turnover_penalty_coef", 0.0),
+        directional_reward_coef=env_cfg.get("directional_reward_coef", 0.0),
+        volatility_exposure_penalty_coef=env_cfg.get("volatility_exposure_penalty_coef", 0.0),
     )
 
 
-def evaluate_asset(asset, config, checkpoint=None, output_dir=None, model=None):
+def evaluate_asset(
+    asset,
+    config,
+    checkpoint=None,
+    output_dir=None,
+    model=None,
+    processed_dataset: ProcessedDataset | None = None,
+):
     asset = normalize_asset_name(asset)
     set_global_seed(config["evaluation"]["random_seed"])
 
-    test_X, test_price = load_processed_data(asset, "test")
-    metadata = load_metadata(asset)
+    if processed_dataset is not None:
+        test_X = processed_dataset.test_windows
+        test_price = processed_dataset.test_price_windows
+        metadata = processed_dataset.metadata
+    else:
+        test_X, test_price = load_processed_data(asset, "test")
+        metadata = load_metadata(asset)
     env = build_eval_env(test_X, test_price, config)
 
     if model is None:
@@ -96,6 +113,7 @@ def evaluate_asset(asset, config, checkpoint=None, output_dir=None, model=None):
         test_price,
         transaction_cost=config["environment"]["transaction_cost"],
         seed=config["evaluation"]["random_seed"],
+        reference_actions=rl_trace["action"],
     )
     rl_metrics = compute_performance_metrics(rl_trace)
     baseline_metrics = {
@@ -127,6 +145,7 @@ def evaluate_asset(asset, config, checkpoint=None, output_dir=None, model=None):
             "Always Flat": baselines["always_flat"]["equity"],
             "Random": baselines["random"]["equity"],
             "Buy and Hold": baselines["buy_and_hold"]["equity"],
+            "Const Mean": baselines["constant_signed_mean_action"]["equity"],
         },
         output_path=output_dir / "equity_curve.png",
         title=f"{asset} Full-Period Evaluation",
@@ -150,6 +169,9 @@ def write_summary(results, output_dir=None):
             "always_flat_final_equity": result["baselines"]["always_flat"]["final_equity"],
             "random_final_equity": result["baselines"]["random"]["final_equity"],
             "buy_and_hold_final_equity": result["baselines"]["buy_and_hold"]["final_equity"],
+            "constant_signed_mean_action_final_equity": result["baselines"]["constant_signed_mean_action"]["final_equity"],
+            "constant_abs_mean_long_final_equity": result["baselines"]["constant_abs_mean_long"]["final_equity"],
+            "constant_abs_mean_short_final_equity": result["baselines"]["constant_abs_mean_short"]["final_equity"],
         }
         summary_rows.append(row)
 

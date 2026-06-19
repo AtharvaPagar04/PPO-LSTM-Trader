@@ -89,9 +89,11 @@ def test_evaluate_asset_writes_outputs_with_synthetic_artifacts(tmp_path, monkey
 
 def test_random_baseline_is_deterministic_and_flat_has_zero_turnover():
     _, prices = make_eval_data()
-    traces_1 = run_baselines(prices, transaction_cost=0.001, seed=42)
-    traces_2 = run_baselines(prices, transaction_cost=0.001, seed=42)
+    ref_actions = np.full(len(prices) - 1, -0.1, dtype=np.float32)
+    traces_1 = run_baselines(prices, transaction_cost=0.001, seed=42, reference_actions=ref_actions)
+    traces_2 = run_baselines(prices, transaction_cost=0.001, seed=42, reference_actions=ref_actions)
 
     assert np.allclose(traces_1["random"]["equity"], traces_2["random"]["equity"])
     flat_metrics = compute_performance_metrics(traces_1["always_flat"])
     assert flat_metrics["turnover"] == 0.0
+    assert "constant_signed_mean_action" in traces_1

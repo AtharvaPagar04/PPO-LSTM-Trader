@@ -110,6 +110,46 @@ def build_parser():
     ts_parser.add_argument("--quick", action="store_true")
     ts_parser.add_argument("--disable-early-stopping", action="store_true")
 
+    feature_ablation_parser = experiment_subparsers.add_parser(
+        "feature-ablation", help="Run feature ablation experiments."
+    )
+    feature_ablation_parser.add_argument("--asset", type=str, default=None)
+    feature_ablation_parser.add_argument("--all", action="store_true")
+    feature_ablation_parser.add_argument("--config", type=str, default=None)
+    feature_ablation_parser.add_argument("--presets", nargs="+", default=None)
+    feature_ablation_parser.add_argument("--all-presets", action="store_true")
+    feature_ablation_parser.add_argument("--quick", action="store_true")
+
+    seed_validation_parser = experiment_subparsers.add_parser(
+        "seed-validation", help="Run repeated seed validation across feature presets."
+    )
+    seed_validation_parser.add_argument("--asset", type=str, default=None)
+    seed_validation_parser.add_argument("--all", action="store_true")
+    seed_validation_parser.add_argument("--config", type=str, default=None)
+    seed_validation_parser.add_argument("--feature-presets", nargs="+", default=None)
+    seed_validation_parser.add_argument("--seeds", nargs="+", type=int, default=None)
+    seed_validation_parser.add_argument("--quick", action="store_true")
+
+    action_mapping_parser = experiment_subparsers.add_parser(
+        "action-mapping",
+        help="Audit flat thresholds and evaluation-only action scaling.",
+    )
+    action_mapping_parser.add_argument("--asset", type=str, default=None)
+    action_mapping_parser.add_argument("--all", action="store_true")
+    action_mapping_parser.add_argument("--config", type=str, default=None)
+    action_mapping_parser.add_argument("--feature-preset", type=str, default="price_action_minimal")
+    action_mapping_parser.add_argument("--scales", nargs="+", type=float, default=None)
+    action_mapping_parser.add_argument("--quick", action="store_true")
+
+    objective_calibration_parser = experiment_subparsers.add_parser(
+        "objective-calibration", help="Run objective/action calibration experiments."
+    )
+    objective_calibration_parser.add_argument("--asset", type=str, default=None)
+    objective_calibration_parser.add_argument("--config", type=str, default=None)
+    objective_calibration_parser.add_argument("--presets", nargs="+", default=None)
+    objective_calibration_parser.add_argument("--feature-preset", type=str, default="price_action_minimal")
+    objective_calibration_parser.add_argument("--quick", action="store_true")
+
     return parser
 
 
@@ -356,7 +396,6 @@ def cmd_experiment(args):
             print("[ERROR] You must provide --asset.", file=sys.stderr)
             return 1
             
-        from src.config.assets import normalize_asset_name
         asset = normalize_asset_name(args.asset)
         
         if args.all_presets:
@@ -378,7 +417,6 @@ def cmd_experiment(args):
             print("[ERROR] You must provide --asset.", file=sys.stderr)
             return 1
             
-        from src.config.assets import normalize_asset_name
         asset = normalize_asset_name(args.asset)
         
         if args.all_presets:
@@ -393,10 +431,83 @@ def cmd_experiment(args):
         run_ppo_std_experiment(asset, config, presets, quick=args.quick, disable_early_stopping=args.disable_early_stopping)
         return 0
     elif args.experiment_type == "training-signal":
-        from src.config.assets import normalize_asset_name
         asset = normalize_asset_name(args.asset)
         from src.experiments.training_signal import run_training_signal_experiment
         run_training_signal_experiment(asset, config, quick=args.quick, disable_early_stopping=getattr(args, "disable_early_stopping", False))
+        return 0
+    elif args.experiment_type == "feature-ablation":
+        if args.all:
+            print("[ERROR] Feature ablation experiments currently support one asset at a time. Use --asset.", file=sys.stderr)
+            return 1
+        if not args.asset:
+            print("[ERROR] You must provide --asset.", file=sys.stderr)
+            return 1
+        asset = normalize_asset_name(args.asset)
+        if args.all_presets:
+            from src.config.feature_ablation_presets import load_feature_ablation_presets
+            presets = list(load_feature_ablation_presets().keys())
+        elif args.presets:
+            presets = args.presets
+        else:
+            presets = ["full_features", "no_candle_features", "price_action_minimal"]
+        from src.experiments.feature_ablation import run_feature_ablation_experiment
+        run_feature_ablation_experiment(asset, config, presets, quick=args.quick)
+        return 0
+    elif args.experiment_type == "seed-validation":
+        if args.all:
+            print(
+                "[ERROR] Repeated seed validation currently supports one asset at a time. Use --asset.",
+                file=sys.stderr,
+            )
+            return 1
+        asset = normalize_asset_name(args.asset or "btc_usdt")
+        presets = args.feature_presets or ["full_features", "price_action_minimal"]
+        seeds = args.seeds or [42, 43, 44]
+        from src.experiments.seed_validation import run_seed_validation_experiment
+
+        run_seed_validation_experiment(
+            asset,
+            config,
+            feature_presets=presets,
+            seeds=seeds,
+            quick=args.quick,
+        )
+        return 0
+    elif args.experiment_type == "action-mapping":
+        if args.all:
+            print(
+                "[ERROR] Action-mapping experiments currently support one asset at a time. Use --asset.",
+                file=sys.stderr,
+            )
+            return 1
+        if not args.asset:
+            print("[ERROR] You must provide --asset.", file=sys.stderr)
+            return 1
+        asset = normalize_asset_name(args.asset)
+        from src.experiments.action_mapping import run_action_mapping_experiment
+
+        run_action_mapping_experiment(
+            asset,
+            config,
+            feature_preset=args.feature_preset,
+            scales=args.scales or [1, 2, 3, 5],
+            quick=args.quick,
+        )
+        return 0
+    elif args.experiment_type == "objective-calibration":
+        if not args.asset:
+            print("[ERROR] You must provide --asset.", file=sys.stderr)
+            return 1
+        asset = normalize_asset_name(args.asset)
+        from src.experiments.objective_calibration import run_objective_calibration_experiment
+
+        run_objective_calibration_experiment(
+            asset,
+            config,
+            presets=args.presets or ["current", "exposure_penalty_light", "directional_edge_reward", "timing_calibration_combo"],
+            feature_preset=args.feature_preset,
+            quick=args.quick,
+        )
         return 0
     return 1
 

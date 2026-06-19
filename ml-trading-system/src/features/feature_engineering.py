@@ -27,6 +27,7 @@ def main():
         asset=asset,
         window_size=config["data"]["window_size"],
         train_split=config["data"]["train_split"],
+        selected_features=config.get("features", {}).get("selected"),
     )
     save_processed_dataset(dataset)
 

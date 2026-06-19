@@ -1,0 +1,31 @@
+{
+  "current": {
+    "description": "Current objective and action behavior."
+  },
+  "exposure_penalty_light": {
+    "description": "Adds a light penalty on absolute position size to discourage static exposure bias.",
+    "exposure_penalty_coef": 0.005
+  },
+  "exposure_penalty_medium": {
+    "description": "Adds a medium penalty on absolute position size.",
+    "exposure_penalty_coef": 0.01
+  },
+  "turnover_penalty_light": {
+    "description": "Reduce noisy changes while preserving meaningful exposure.",
+    "turnover_penalty_coef": 0.002
+  },
+  "directional_edge_reward": {
+    "description": "Encourage directionally correct actions rather than static exposure.",
+    "directional_reward_coef": 0.05
+  },
+  "risk_adjusted_pnl": {
+    "description": "Avoid constant exposure in noisy/high-volatility regimes.",
+    "volatility_exposure_penalty_coef": 0.01
+  },
+  "timing_calibration_combo": {
+    "description": "Combines conservative exposure penalty, directional edge, and volatility penalty.",
+    "exposure_penalty_coef": 0.005,
+    "directional_reward_coef": 0.03,
+    "volatility_exposure_penalty_coef": 0.005
+  }
+}

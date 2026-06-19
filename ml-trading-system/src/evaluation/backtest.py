@@ -57,6 +57,10 @@ def _simulate_env_trace(env, actions):
     return {key: np.asarray(value) for key, value in trace.items()}
 
 
+def run_action_backtest(env, actions):
+    return _simulate_env_trace(env, actions)
+
+
 def run_policy_backtest(env, policy, deterministic_policy=True):
     device = next(policy.parameters()).device
     policy.eval()
@@ -65,7 +69,7 @@ def run_policy_backtest(env, policy, deterministic_policy=True):
         states = torch.tensor(env.X[:-1], dtype=torch.float32).to(device)
         with torch.no_grad():
             mean, _, _ = policy(states)
-        return _simulate_env_trace(env, mean.squeeze(-1).cpu().numpy())
+        return run_action_backtest(env, mean.squeeze(-1).cpu().numpy())
 
     state = env.reset(mode="eval")
     trace = {

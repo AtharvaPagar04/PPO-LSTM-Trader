@@ -13,11 +13,15 @@ from src.config.assets import SUPPORTED_ASSETS, asset_to_symbol, normalize_asset
 from src.config.paths import WALK_FORWARD_DIR, ensure_dir, resolve_checkpoint_path
 from src.data.dataset import load_metadata, load_processed_data
 from src.evaluation.backtest import run_policy_backtest
-from src.evaluation.baselines import BASELINE_STRATEGIES, run_baselines
+from src.evaluation.baselines import (
+    BASELINE_STRATEGIES,
+    EXPOSURE_EQUIVALENT_BASELINES,
+    run_baselines,
+)
 from src.evaluation.benchmark import build_eval_env, load_policy_from_checkpoint
 from src.evaluation.metrics import compute_performance_metrics
 from src.evaluation.plot import plot_equity_curves
-from src.features.pipeline import engineer_features, load_raw_dataframe
+from src.features.pipeline import ProcessedDataset, engineer_features, load_raw_dataframe
 from src.inference import display_path
 from src.utils.logger import utc_timestamp_slug, write_json
 from src.utils.seed import set_global_seed
@@ -117,8 +121,14 @@ def evaluate_baselines_on_fold(
     *,
     transaction_cost: float,
     seed: int,
+    reference_actions: np.ndarray | None = None,
 ) -> tuple[dict[str, dict], dict[str, dict]]:
-    traces = run_baselines(price_windows, transaction_cost=transaction_cost, seed=seed)
+    traces = run_baselines(
+        price_windows,
+        transaction_cost=transaction_cost,
+        seed=seed,
+        reference_actions=reference_actions,
+    )
     metrics = {name: compute_performance_metrics(trace) for name, trace in traces.items()}
     return traces, metrics
 
@@ -134,10 +144,15 @@ def compare_fold_strategies(
 ) -> dict:
     strategy_metrics = {
         "rl_policy": rl_metrics,
-        **{name: baseline_metrics[name] for name in BASELINE_STRATEGIES},
+        **{
+            name: baseline_metrics[name]
+            for name in (*BASELINE_STRATEGIES, *EXPOSURE_EQUIVALENT_BASELINES)
+            if name in baseline_metrics
+        },
     }
     ranked_by_return = _rank_strategies(strategy_metrics, "total_return")
     ranked_by_sharpe = _rank_strategies(strategy_metrics, "sharpe")
+    strategy_count = len(strategy_metrics)
 
     return {
         "asset": asset,
@@ -167,14 +182,33 @@ def compare_fold_strategies(
         "random_total_return": baseline_metrics["random"]["total_return"],
         "random_sharpe": baseline_metrics["random"]["sharpe"],
         "random_max_drawdown": baseline_metrics["random"]["max_drawdown"],
+        "constant_signed_mean_action_final_equity": baseline_metrics["constant_signed_mean_action"]["final_equity"],
+        "constant_signed_mean_action_total_return": baseline_metrics["constant_signed_mean_action"]["total_return"],
+        "constant_signed_mean_action_sharpe": baseline_metrics["constant_signed_mean_action"]["sharpe"],
+        "constant_signed_mean_action_max_drawdown": baseline_metrics["constant_signed_mean_action"]["max_drawdown"],
+        "constant_abs_mean_long_final_equity": baseline_metrics["constant_abs_mean_long"]["final_equity"],
+        "constant_abs_mean_long_total_return": baseline_metrics["constant_abs_mean_long"]["total_return"],
+        "constant_abs_mean_long_sharpe": baseline_metrics["constant_abs_mean_long"]["sharpe"],
+        "constant_abs_mean_long_max_drawdown": baseline_metrics["constant_abs_mean_long"]["max_drawdown"],
+        "constant_abs_mean_short_final_equity": baseline_metrics["constant_abs_mean_short"]["final_equity"],
+        "constant_abs_mean_short_total_return": baseline_metrics["constant_abs_mean_short"]["total_return"],
+        "constant_abs_mean_short_sharpe": baseline_metrics["constant_abs_mean_short"]["sharpe"],
+        "constant_abs_mean_short_max_drawdown": baseline_metrics["constant_abs_mean_short"]["max_drawdown"],
         "best_strategy_by_return": ranked_by_return[0],
         "best_strategy_by_sharpe": ranked_by_sharpe[0],
         "rl_rank_by_return": ranked_by_return.index("rl_policy") + 1,
         "rl_rank_by_sharpe": ranked_by_sharpe.index("rl_policy") + 1,
+        "strategy_count": strategy_count,
         "rl_beat_always_long": rl_metrics["total_return"] > baseline_metrics["always_long"]["total_return"],
         "rl_beat_always_short": rl_metrics["total_return"] > baseline_metrics["always_short"]["total_return"],
         "rl_beat_always_flat": rl_metrics["total_return"] > baseline_metrics["always_flat"]["total_return"],
         "rl_beat_random": rl_metrics["total_return"] > baseline_metrics["random"]["total_return"],
+        "rl_beat_constant_signed_mean_action": rl_metrics["total_return"]
+        > baseline_metrics["constant_signed_mean_action"]["total_return"],
+        "rl_beat_constant_abs_mean_long": rl_metrics["total_return"]
+        > baseline_metrics["constant_abs_mean_long"]["total_return"],
+        "rl_beat_constant_abs_mean_short": rl_metrics["total_return"]
+        > baseline_metrics["constant_abs_mean_short"]["total_return"],
     }
 
 
@@ -231,9 +265,27 @@ def aggregate_baseline_comparisons(fold_rows: list[dict]) -> dict:
             1 for row in fold_rows if row["rl_beat_always_flat"]
         ),
         "rl_beat_random_count": sum(1 for row in fold_rows if row["rl_beat_random"]),
+        "rl_beat_constant_signed_mean_action_count": sum(
+            1 for row in fold_rows if row["rl_beat_constant_signed_mean_action"]
+        ),
+        "rl_beat_constant_abs_mean_long_count": sum(
+            1 for row in fold_rows if row["rl_beat_constant_abs_mean_long"]
+        ),
+        "rl_beat_constant_abs_mean_short_count": sum(
+            1 for row in fold_rows if row["rl_beat_constant_abs_mean_short"]
+        ),
     }
 
-    metric_prefixes = ("rl", "always_long", "always_short", "always_flat", "random")
+    metric_prefixes = (
+        "rl",
+        "always_long",
+        "always_short",
+        "always_flat",
+        "random",
+        "constant_signed_mean_action",
+        "constant_abs_mean_long",
+        "constant_abs_mean_short",
+    )
     for prefix in metric_prefixes:
         aggregate[f"{prefix}_mean_return"] = float(
             np.mean([row[f"{prefix}_total_return"] for row in fold_rows])
@@ -257,6 +309,15 @@ def aggregate_baseline_comparisons(fold_rows: list[dict]) -> dict:
     aggregate["rl_beat_random_ratio"] = float(
         aggregate["rl_beat_random_count"] / total_folds
     )
+    aggregate["rl_beat_constant_signed_mean_action_ratio"] = float(
+        aggregate["rl_beat_constant_signed_mean_action_count"] / total_folds
+    )
+    aggregate["rl_beat_constant_abs_mean_long_ratio"] = float(
+        aggregate["rl_beat_constant_abs_mean_long_count"] / total_folds
+    )
+    aggregate["rl_beat_constant_abs_mean_short_ratio"] = float(
+        aggregate["rl_beat_constant_abs_mean_short_count"] / total_folds
+    )
 
     aggregate["best_overall_strategy_by_mean_return"] = _rank_strategies(
         {
@@ -265,6 +326,15 @@ def aggregate_baseline_comparisons(fold_rows: list[dict]) -> dict:
             "always_short": {"total_return": aggregate["always_short_mean_return"]},
             "always_flat": {"total_return": aggregate["always_flat_mean_return"]},
             "random": {"total_return": aggregate["random_mean_return"]},
+            "constant_signed_mean_action": {
+                "total_return": aggregate["constant_signed_mean_action_mean_return"]
+            },
+            "constant_abs_mean_long": {
+                "total_return": aggregate["constant_abs_mean_long_mean_return"]
+            },
+            "constant_abs_mean_short": {
+                "total_return": aggregate["constant_abs_mean_short_mean_return"]
+            },
         },
         "total_return",
     )[0]
@@ -275,6 +345,15 @@ def aggregate_baseline_comparisons(fold_rows: list[dict]) -> dict:
             "always_short": {"sharpe": aggregate["always_short_mean_sharpe"]},
             "always_flat": {"sharpe": aggregate["always_flat_mean_sharpe"]},
             "random": {"sharpe": aggregate["random_mean_sharpe"]},
+            "constant_signed_mean_action": {
+                "sharpe": aggregate["constant_signed_mean_action_mean_sharpe"]
+            },
+            "constant_abs_mean_long": {
+                "sharpe": aggregate["constant_abs_mean_long_mean_sharpe"]
+            },
+            "constant_abs_mean_short": {
+                "sharpe": aggregate["constant_abs_mean_short_mean_sharpe"]
+            },
         },
         "sharpe",
     )[0]
@@ -304,14 +383,14 @@ def _write_summary_txt(
     if include_baselines:
         lines = [f"Walk-forward baseline comparison: {asset}", ""]
         lines.append(
-            "Fold  RL Ret   Long Ret  Short Ret  Flat Ret  Random Ret  Best Return   RL Rank"
+            "Fold  RL Ret   Long Ret  Short Ret  Flat Ret  Mean Ret   Best Return   RL Rank"
         )
         for row in fold_rows:
             lines.append(
                 f"{row['fold_index']:<5} {row['rl_total_return']:<8.4f} "
                 f"{row['always_long_total_return']:<8.4f} {row['always_short_total_return']:<9.4f} "
-                f"{row['always_flat_total_return']:<8.4f} {row['random_total_return']:<10.4f} "
-                f"{row['best_strategy_by_return']:<13} {row['rl_rank_by_return']}/5"
+                f"{row['always_flat_total_return']:<8.4f} {row['constant_signed_mean_action_total_return']:<10.4f} "
+                f"{row['best_strategy_by_return']:<13} {row['rl_rank_by_return']}/{row['strategy_count']}"
             )
         lines.extend(
             [
@@ -321,6 +400,9 @@ def _write_summary_txt(
                 f"RL beat always_short: {baseline_aggregate['rl_beat_always_short_count']}/{baseline_aggregate['total_folds']}",
                 f"RL beat always_flat: {baseline_aggregate['rl_beat_always_flat_count']}/{baseline_aggregate['total_folds']}",
                 f"RL beat random: {baseline_aggregate['rl_beat_random_count']}/{baseline_aggregate['total_folds']}",
+                f"RL beat constant mean exposure: {baseline_aggregate['rl_beat_constant_signed_mean_action_count']}/{baseline_aggregate['total_folds']}",
+                f"RL beat constant abs short: {baseline_aggregate['rl_beat_constant_abs_mean_short_count']}/{baseline_aggregate['total_folds']}",
+                f"RL beat constant abs long: {baseline_aggregate['rl_beat_constant_abs_mean_long_count']}/{baseline_aggregate['total_folds']}",
                 f"RL best by return: {baseline_aggregate['rl_best_return_fold_count']}/{baseline_aggregate['total_folds']}",
                 f"Best mean-return strategy: {baseline_aggregate['best_overall_strategy_by_mean_return']}",
                 "",
@@ -361,17 +443,31 @@ def evaluate_walk_forward_asset(
     fold_size: int | None = None,
     output_dir: str | Path | None = None,
     include_baselines: bool = False,
+    processed_dataset: ProcessedDataset | None = None,
 ) -> dict:
     asset = normalize_asset_name(asset)
     set_global_seed(config["evaluation"]["random_seed"])
-    test_X, test_price = load_processed_data(asset, "test")
-    metadata = load_metadata(asset)
+    if processed_dataset is not None:
+        test_X = processed_dataset.test_windows
+        test_price = processed_dataset.test_price_windows
+        metadata = processed_dataset.metadata
+    else:
+        test_X, test_price = load_processed_data(asset, "test")
+        metadata = load_metadata(asset)
     timestamps = _window_end_timestamps(asset, metadata)
     fold_defs = create_walk_forward_folds(
         total_steps=len(test_X),
         folds=folds,
         fold_size=fold_size,
     )
+
+    max_fold_end = max(f.end_index for f in fold_defs)
+    if max_fold_end > len(timestamps):
+        raise ValueError(
+            f"Walk-forward timestamp/index mismatch: "
+            f"max fold.end_index={max_fold_end}, len(timestamps)={len(timestamps)}, "
+            f"len(test_X)={len(test_X)}, asset={asset}"
+        )
 
     checkpoint_path = resolve_checkpoint_path(asset, checkpoint)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -405,6 +501,7 @@ def evaluate_walk_forward_asset(
             fold_price,
             transaction_cost=config["environment"]["transaction_cost"],
             seed=config["evaluation"]["random_seed"] + fold.fold_index,
+            reference_actions=rl_trace["action"],
         )
         rl_metrics = compute_performance_metrics(rl_trace)
 
@@ -452,6 +549,9 @@ def evaluate_walk_forward_asset(
                     "rl_beat_always_short": fold_row["rl_beat_always_short"],
                     "rl_beat_always_flat": fold_row["rl_beat_always_flat"],
                     "rl_beat_random": fold_row["rl_beat_random"],
+                    "rl_beat_constant_signed_mean_action": fold_row["rl_beat_constant_signed_mean_action"],
+                    "rl_beat_constant_abs_mean_long": fold_row["rl_beat_constant_abs_mean_long"],
+                    "rl_beat_constant_abs_mean_short": fold_row["rl_beat_constant_abs_mean_short"],
                 }
             )
         else:
@@ -474,6 +574,7 @@ def evaluate_walk_forward_asset(
                 "Always Flat": baseline_traces["always_flat"]["equity"],
                 "Random": baseline_traces["random"]["equity"],
                 "Buy and Hold": baseline_traces["buy_and_hold"]["equity"],
+                "Const Mean": baseline_traces["constant_signed_mean_action"]["equity"],
             },
             output_path=base_output_dir / f"equity_fold_{fold.fold_index}.png",
             title=f"{asset} Walk-Forward Fold {fold.fold_index}",
@@ -587,9 +688,13 @@ def evaluate_walk_forward_all(
                     "always_short_mean_return": baseline["always_short_mean_return"],
                     "always_flat_mean_return": baseline["always_flat_mean_return"],
                     "random_mean_return": baseline["random_mean_return"],
+                    "constant_signed_mean_action_mean_return": baseline["constant_signed_mean_action_mean_return"],
+                    "constant_abs_mean_long_mean_return": baseline["constant_abs_mean_long_mean_return"],
+                    "constant_abs_mean_short_mean_return": baseline["constant_abs_mean_short_mean_return"],
                     "rl_best_return_folds": f"{baseline['rl_best_return_fold_count']}/{baseline['total_folds']}",
                     "rl_beat_always_long": f"{baseline['rl_beat_always_long_count']}/{baseline['total_folds']}",
                     "rl_beat_always_flat": f"{baseline['rl_beat_always_flat_count']}/{baseline['total_folds']}",
+                    "rl_beat_constant_signed_mean_action": f"{baseline['rl_beat_constant_signed_mean_action_count']}/{baseline['total_folds']}",
                     "best_overall_strategy_by_mean_return": baseline["best_overall_strategy_by_mean_return"],
                     "output_dir": str(asset_output),
                 }

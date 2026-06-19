@@ -4,6 +4,20 @@
     "train_split": 0.8,
     "timeframe": "1h"
   },
+  "features": {
+    "selected": [
+      "log_return",
+      "volatility_10",
+      "volatility_20",
+      "momentum_5",
+      "momentum_10",
+      "trend",
+      "rsi",
+      "body_ratio",
+      "range_pct",
+      "vol_z"
+    ]
+  },
   "training": {
     "seed": 42,
     "iterations": 120,
