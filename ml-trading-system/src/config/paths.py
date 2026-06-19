@@ -14,7 +14,10 @@ MODELS_DIR = BASE_DIR / "models"
 LOGS_DIR = BASE_DIR / "logs"
 RUNS_DIR = LOGS_DIR / "runs"
 EVALUATION_DIR = LOGS_DIR / "evaluation"
+WALK_FORWARD_DIR = LOGS_DIR / "walk_forward"
 PREDICTIONS_DIR = LOGS_DIR / "predictions"
+DIAGNOSTICS_DIR = LOGS_DIR / "diagnostics"
+EXPERIMENTS_DIR = LOGS_DIR / "experiments"
 DOCS_DIR = BASE_DIR / "docs"
 
 

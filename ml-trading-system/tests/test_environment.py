@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from src.env.trading_env import TradingEnv
 
@@ -39,3 +40,15 @@ def test_eval_reset_starts_from_beginning():
     env = make_env()
     env.reset(mode="eval")
     assert env.t == 0
+
+
+def test_info_includes_reward_components_and_clipped_reward_matches():
+    env = make_env()
+    env.reset(mode="eval")
+    _, reward, _, info = env.step(1.0)
+    assert info["clipped_reward"] == pytest.approx(reward)
+    assert "unclipped_reward" in info
+    assert isinstance(info["was_clipped"], bool)
+    assert info["transaction_cost"] >= 0.0
+    assert info["position_penalty_value"] >= 0.0
+    assert info["action_change_penalty_value"] >= 0.0

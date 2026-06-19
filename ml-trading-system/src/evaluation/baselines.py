@@ -1,6 +1,14 @@
 import numpy as np
 
 
+BASELINE_STRATEGIES = (
+    "always_long",
+    "always_short",
+    "always_flat",
+    "random",
+)
+
+
 def compute_market_returns(price_windows):
     curr = price_windows[:-1, -1, 3]
     nxt = price_windows[1:, -1, 3]
@@ -58,7 +66,7 @@ def simulate_positions(price_windows, positions, transaction_cost):
 def run_baselines(price_windows, transaction_cost, seed):
     steps = len(price_windows) - 1
     rng = np.random.default_rng(seed)
-    random_positions = rng.choice([-1.0, 0.0, 1.0], size=steps)
+    random_positions = rng.uniform(-1.0, 1.0, size=steps).astype(np.float32)
 
     return {
         "always_long": simulate_positions(
@@ -71,6 +79,7 @@ def run_baselines(price_windows, transaction_cost, seed):
             price_windows, np.zeros(steps, dtype=np.float32), transaction_cost
         ),
         "random": simulate_positions(price_windows, random_positions, transaction_cost),
+        # In the current spot-style setup, buy-and-hold is equivalent to always-long.
         "buy_and_hold": simulate_positions(
             price_windows, np.ones(steps, dtype=np.float32), transaction_cost
         ),

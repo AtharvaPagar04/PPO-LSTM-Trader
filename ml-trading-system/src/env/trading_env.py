@@ -70,11 +70,18 @@ class TradingEnv:
         self.peak = max(self.peak, self.equity)
         drawdown = (self.peak - self.equity) / self.peak
 
-        reward = pnl * self.reward_scale
-        reward -= self.drawdown_penalty * drawdown
-        reward -= self.position_penalty * (self.position ** 2)
-        reward -= self.action_change_penalty * position_change
-        reward = float(np.clip(reward, -self.reward_clip, self.reward_clip))
+        scaled_pnl_reward = pnl * self.reward_scale
+        drawdown_penalty_value = self.drawdown_penalty * drawdown
+        position_penalty_value = self.position_penalty * (self.position ** 2)
+        action_change_penalty_value = self.action_change_penalty * position_change
+        unclipped_reward = (
+            scaled_pnl_reward
+            - drawdown_penalty_value
+            - position_penalty_value
+            - action_change_penalty_value
+        )
+        reward = float(np.clip(unclipped_reward, -self.reward_clip, self.reward_clip))
+        was_clipped = not np.isclose(reward, unclipped_reward)
 
         self.t += 1
         self.steps += 1
@@ -95,5 +102,14 @@ class TradingEnv:
             "position_change": position_change,
             "log_return": log_return,
             "simple_return": simple_return,
+            "raw_trading_pnl": pnl,
+            "gross_pnl": self.position * log_return,
+            "scaled_pnl_reward": scaled_pnl_reward,
+            "drawdown_penalty_value": drawdown_penalty_value,
+            "position_penalty_value": position_penalty_value,
+            "action_change_penalty_value": action_change_penalty_value,
+            "unclipped_reward": float(unclipped_reward),
+            "clipped_reward": reward,
+            "was_clipped": bool(was_clipped),
         }
         return next_state, reward, done, info

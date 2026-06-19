@@ -1,0 +1,38 @@
+{
+  "current": {
+    "reward_scale": 50.0,
+    "transaction_cost": 0.0004,
+    "drawdown_penalty": 0.1,
+    "position_penalty": 0.05,
+    "action_change_penalty": 0.001,
+    "reward_clip": 5.0
+  },
+  "no_action_change_penalty": {
+    "inherits": "current",
+    "action_change_penalty": 0.0
+  },
+  "low_position_penalty": {
+    "inherits": "current",
+    "position_penalty": 0.005
+  },
+  "no_position_penalty": {
+    "inherits": "current",
+    "position_penalty": 0.0
+  },
+  "low_drawdown_penalty": {
+    "inherits": "current",
+    "drawdown_penalty": 0.025
+  },
+  "reduced_penalty_combo": {
+    "inherits": "current",
+    "action_change_penalty": 0.0,
+    "position_penalty": 0.005,
+    "drawdown_penalty": 0.05
+  },
+  "pnl_focused": {
+    "inherits": "current",
+    "action_change_penalty": 0.0,
+    "position_penalty": 0.0,
+    "drawdown_penalty": 0.0
+  }
+}

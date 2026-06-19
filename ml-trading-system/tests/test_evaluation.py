@@ -7,6 +7,7 @@ import torch
 from src.config import paths as config_paths
 from src.config.settings import load_config
 from src.evaluation.backtest import run_policy_backtest
+from src.evaluation.baselines import run_baselines
 from src.evaluation.benchmark import evaluate_asset
 from src.evaluation.metrics import compute_performance_metrics
 from src.models.policy import LSTMPolicy
@@ -84,3 +85,13 @@ def test_evaluate_asset_writes_outputs_with_synthetic_artifacts(tmp_path, monkey
     assert (eval_dir / asset / "metrics.json").exists()
     assert (eval_dir / asset / "equity_curve.png").exists()
     assert (eval_dir / asset / "actions.csv").exists()
+
+
+def test_random_baseline_is_deterministic_and_flat_has_zero_turnover():
+    _, prices = make_eval_data()
+    traces_1 = run_baselines(prices, transaction_cost=0.001, seed=42)
+    traces_2 = run_baselines(prices, transaction_cost=0.001, seed=42)
+
+    assert np.allclose(traces_1["random"]["equity"], traces_2["random"]["equity"])
+    flat_metrics = compute_performance_metrics(traces_1["always_flat"])
+    assert flat_metrics["turnover"] == 0.0

@@ -33,11 +33,15 @@ def _remap_legacy_state_dict_keys(state_dict):
 
 
 def load_policy_from_checkpoint(asset, checkpoint_path, input_dim, config, device):
+    ppo_cfg = config.get("ppo", {})
     model = LSTMPolicy(
         input_dim=input_dim,
         hidden_dim=config["model"]["hidden_size"],
         lstm_layers=config["model"]["lstm_layers"],
         dropout=config["model"]["dropout"],
+        log_std_min=ppo_cfg.get("log_std_min", -1.5),
+        log_std_max=ppo_cfg.get("log_std_max", -0.2),
+        std_parameterization=ppo_cfg.get("std_parameterization", "hard_clamp"),
     ).to(device)
     try:
         payload = torch.load(checkpoint_path, map_location=device, weights_only=True)

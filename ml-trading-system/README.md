@@ -207,10 +207,64 @@ The project now includes a CLI entrypoint:
 ./venv/bin/python -m src.cli evaluate --all
 ```
 
+### Walk-forward evaluation for one asset
+
+```bash
+./venv/bin/python -m src.cli evaluate --asset btc_usdt --walk-forward
+```
+
+### Walk-forward evaluation for all assets
+
+```bash
+./venv/bin/python -m src.cli evaluate --all --walk-forward
+```
+
+### Walk-forward baseline comparison for one asset
+
+```bash
+./venv/bin/python -m src.cli evaluate --asset btc_usdt --walk-forward --baselines
+```
+
+### Walk-forward baseline comparison for all assets
+
+```bash
+./venv/bin/python -m src.cli evaluate --all --walk-forward --baselines
+```
+
+### Diagnose one asset
+
+```bash
+./venv/bin/python -m src.cli diagnose --asset btc_usdt
+```
+
+### Diagnose all supported assets
+
+```bash
+./venv/bin/python -m src.cli diagnose --all
+```
+
 ### Predict from the latest available window
 
 ```bash
 ./venv/bin/python -m src.cli predict --asset btc_usdt
+```
+
+### Run Reward Tuning Experiments
+
+```bash
+./venv/bin/python -m src.cli experiment reward --asset btc_usdt
+```
+
+### Run PPO Std Tuning Experiments
+
+```bash
+./venv/bin/python -m src.cli experiment ppo-std --asset btc_usdt
+```
+
+### Run Training Signal Diagnostics
+
+```bash
+./venv/bin/python -m src.cli experiment training-signal --asset btc_usdt
 ```
 
 ### Predict for all supported assets
@@ -265,6 +319,69 @@ Training and evaluation now use different execution modes:
 
 This makes standalone evaluation reproducible and directly comparable across assets and baselines.
 
+## Walk-Forward Evaluation
+
+Walk-forward v1 splits the existing held-out test period into chronological folds and evaluates the existing trained checkpoint on each fold. This helps reveal whether performance is stable across different periods.
+
+It does not retrain per fold. It is a lightweight offline robustness diagnostic over the existing saved model.
+
+Example commands:
+
+```bash
+./venv/bin/python -m src.cli evaluate --asset btc_usdt --walk-forward
+./venv/bin/python -m src.cli evaluate --all --walk-forward
+./venv/bin/python -m src.cli evaluate --asset btc_usdt --walk-forward --folds 5
+```
+
+Walk-forward outputs are saved under timestamped directories such as:
+
+```text
+logs/walk_forward/{timestamp}_{asset}/
+logs/walk_forward/{timestamp}_all/
+```
+
+Walk-forward metrics are experimental research diagnostics and should not be interpreted as evidence of live trading profitability.
+
+## Walk-Forward Baseline Comparison
+
+The `--baselines` flag compares the PPO/LSTM policy against simple deterministic baseline strategies inside each chronological walk-forward fold.
+
+Example commands:
+
+```bash
+./venv/bin/python -m src.cli evaluate --asset btc_usdt --walk-forward --baselines
+./venv/bin/python -m src.cli evaluate --all --walk-forward --baselines
+```
+
+This mode evaluates the existing checkpoint only. It does not retrain a new model for each fold.
+
+In the current spot-style setup, `buy_and_hold` is equivalent to `always_long`, so it is kept in detailed baseline traces but excluded from comparison rankings to avoid duplicating the same strategy.
+
+Baseline comparison is an offline research diagnostic. It does not execute trades and should not be interpreted as evidence of live trading profitability.
+
+## 1h Model Diagnostics
+
+Diagnostics measure what the trained policy is doing during deterministic offline evaluation. They do not modify the model, do not retrain, and do not execute trades.
+
+Example commands:
+
+```bash
+./venv/bin/python -m src.cli diagnose --asset btc_usdt
+./venv/bin/python -m src.cli diagnose --all
+./venv/bin/python -m src.cli diagnose --asset btc_usdt --format json
+```
+
+The diagnostics report focuses on:
+
+- action neutrality vs directional bias
+- turnover and position-change behavior
+- policy standard deviation behavior
+- reward decomposition into PnL and penalties
+- transaction-cost drag
+- reward clipping frequency
+
+Current diagnostic evidence on the saved 1h checkpoints shows that the policy is mostly flat across assets, policy std is effectively constant at `0.8187`, and cumulative penalty terms are materially larger than final net PnL.
+
 ## Official Current Results
 
 The current official metrics are the deterministic full-period outputs saved under `logs/evaluation/`.
@@ -305,6 +422,46 @@ logs/predictions/{timestamp}_{asset}_prediction.json
 logs/predictions/{timestamp}_all_predictions.json
 ```
 
+Walk-forward evaluation saves:
+
+```text
+logs/walk_forward/{timestamp}_{asset}/fold_metrics.csv
+logs/walk_forward/{timestamp}_{asset}/fold_metrics.json
+logs/walk_forward/{timestamp}_{asset}/aggregate_metrics.json
+logs/walk_forward/{timestamp}_{asset}/summary.txt
+logs/walk_forward/{timestamp}_all/all_assets_summary.csv
+logs/walk_forward/{timestamp}_all/all_assets_summary.json
+```
+
+Walk-forward baseline comparison additionally saves:
+
+```text
+logs/walk_forward/{timestamp}_{asset}_baselines/baseline_comparison.csv
+logs/walk_forward/{timestamp}_{asset}_baselines/baseline_comparison.json
+logs/walk_forward/{timestamp}_{asset}_baselines/baseline_aggregate.json
+logs/walk_forward/{timestamp}_all_baselines/all_assets_baseline_summary.csv
+logs/walk_forward/{timestamp}_all_baselines/all_assets_baseline_summary.json
+```
+
+Diagnostics save:
+
+```text
+logs/diagnostics/{timestamp}_{asset}/summary.json
+logs/diagnostics/{timestamp}_{asset}/actions.csv
+logs/diagnostics/{timestamp}_{asset}/reward_components.csv
+logs/diagnostics/{timestamp}_{asset}/diagnostics.txt
+logs/diagnostics/{timestamp}_all/all_assets_summary.csv
+logs/diagnostics/{timestamp}_all/all_assets_summary.json
+```
+
+Experiments save:
+
+```text
+logs/experiments/reward_tuning/{timestamp}_{asset}/
+logs/experiments/ppo_std_tuning/{timestamp}_{asset}/
+logs/experiments/training_signal/{timestamp}_{asset}/
+```
+
 ## Test Coverage
 
 Focused pytest coverage now exists for:
@@ -319,7 +476,11 @@ Focused pytest coverage now exists for:
 ## Known Limitations
 
 - Results still depend on the quality of the saved checkpoints.
-- There is no walk-forward validation yet.
+- Walk-forward v1 evaluates existing checkpoints only.
+- Walk-forward v1 does not retrain per fold.
+- Walk-forward baseline comparison v1 also evaluates existing checkpoints only.
+- Diagnostics evaluate existing checkpoints only.
+- Diagnostics are limited to the current 1h model.
 - There is no hyperparameter sweep or repeated-seed benchmark report yet.
 - Baselines are intentionally simple.
 - This is still a research prototype, not a production trading system.
@@ -330,3 +491,7 @@ Focused pytest coverage now exists for:
 - `docs/current_status.md`
 - `docs/evaluation.md`
 - `docs/experiment_tracking.md`
+- `docs/model_diagnostics.md`
+- `docs/ppo_std_tuning.md`
+- `docs/reward_tuning.md`
+- `docs/training_signal_diagnostics.md`

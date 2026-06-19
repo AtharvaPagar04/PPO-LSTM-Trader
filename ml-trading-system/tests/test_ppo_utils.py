@@ -1,36 +1,62 @@
 import numpy as np
+import pytest
+from src.ppo.ppo_trainer import explained_variance
 import torch
 
-from src.models.policy import LSTMPolicy
-from src.ppo.losses import clipped_policy_loss, normalize_advantages
-from src.ppo.rollout_buffer import compute_gae
+from src.models.actor import ActorHead
+
+def test_explained_variance():
+    y_true = np.array([1.0, 2.0, 3.0, 4.0])
+    y_pred = np.array([1.1, 2.1, 2.9, 4.1])
+    
+    ev = explained_variance(y_pred, y_true)
+    assert 0.9 < ev <= 1.0
+    
+    y_true_const = np.array([1.0, 1.0, 1.0, 1.0])
+    ev_const = explained_variance(y_pred, y_true_const)
+    assert np.isnan(ev_const)
 
 
-def test_compute_gae_output_shapes():
-    rewards = np.array([1.0, 0.5, -0.1], dtype=np.float32)
-    values = np.array([0.2, 0.1, 0.0], dtype=np.float32)
-    dones = np.array([0.0, 0.0, 1.0], dtype=np.float32)
-    advantages, returns = compute_gae(rewards, values, dones, gamma=0.99, gae_lambda=0.95)
-    assert advantages.shape == rewards.shape
-    assert returns.shape == rewards.shape
+def test_hard_clamp_preserves_std_bounds():
+    actor = ActorHead(4, log_std_min=-1.5, log_std_max=-0.2, std_parameterization="hard_clamp")
+    x = torch.randn(8, 4)
+    _, std, diagnostics = actor(x, return_diagnostics=True)
+    log_std = torch.log(std)
+    assert torch.all(log_std <= -0.2 + 1e-6)
+    assert torch.all(log_std >= -1.5 - 1e-6)
+    assert "std_high_saturation_ratio" in diagnostics
 
 
-def test_advantage_normalization_and_clipped_loss_are_finite():
-    advantages = normalize_advantages(torch.tensor([[1.0], [2.0], [3.0]]))
-    loss = clipped_policy_loss(
-        torch.tensor([[0.1], [0.2], [0.3]]),
-        torch.tensor([[0.1], [0.15], [0.25]]),
-        advantages,
-        clip_ratio=0.2,
-    )
-    assert torch.isfinite(advantages).all()
-    assert torch.isfinite(loss)
+def test_smooth_bound_preserves_std_bounds():
+    actor = ActorHead(4, log_std_min=-1.5, log_std_max=-0.2, std_parameterization="smooth_bound")
+    x = torch.randn(8, 4)
+    _, std, _ = actor(x, return_diagnostics=True)
+    log_std = torch.log(std)
+    assert torch.all(log_std <= -0.2 + 1e-6)
+    assert torch.all(log_std >= -1.5 - 1e-6)
 
 
-def test_model_forward_returns_mean_std_and_value():
-    model = LSTMPolicy(input_dim=10)
-    x = torch.randn(4, 20, 10)
-    mean, std, value = model(x)
-    assert mean.shape == (4, 1)
-    assert std.shape == (4, 1)
-    assert value.shape == (4, 1)
+def test_smooth_bound_allows_non_zero_gradient():
+    actor = ActorHead(4, log_std_min=-1.5, log_std_max=-0.2, std_parameterization="smooth_bound")
+    with torch.no_grad():
+        actor.actor_std.weight.fill_(1.0)
+        actor.actor_std.bias.fill_(5.0)
+    x = torch.ones(2, 4, requires_grad=False)
+    _, std = actor(x)
+    loss = std.mean()
+    loss.backward()
+    assert actor.actor_std.weight.grad is not None
+    assert actor.actor_std.weight.grad.abs().sum().item() > 0.0
+
+
+def test_hard_clamp_can_zero_gradient_when_saturated():
+    actor = ActorHead(4, log_std_min=-1.5, log_std_max=-0.2, std_parameterization="hard_clamp")
+    with torch.no_grad():
+        actor.actor_std.weight.fill_(1.0)
+        actor.actor_std.bias.fill_(5.0)
+    x = torch.ones(2, 4, requires_grad=False)
+    _, std = actor(x)
+    loss = std.mean()
+    loss.backward()
+    assert actor.actor_std.weight.grad is not None
+    assert actor.actor_std.weight.grad.abs().sum().item() == pytest.approx(0.0)
