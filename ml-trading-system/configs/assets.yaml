@@ -1,0 +1,10 @@
+{
+  "assets": {
+    "supported": ["btc_usdt", "eth_usdt", "sol_usdt"],
+    "binance_symbols": {
+      "btc_usdt": "BTCUSDT",
+      "eth_usdt": "ETHUSDT",
+      "sol_usdt": "SOLUSDT"
+    }
+  }
+}

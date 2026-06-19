@@ -1,34 +1,30 @@
 import os
 import subprocess
+import sys
+from pathlib import Path
 
-# 🔥 datasets to train on
-SYMBOLS = ["btc_usdt", "ethusdt", "solusdt"]
-# paths
-DATA_DIR = "data/raw"
-LOG_DIR = "logs"
-MODEL_DIR = "models"
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
-os.makedirs(LOG_DIR, exist_ok=True)
-os.makedirs(MODEL_DIR, exist_ok=True)
+from src.config.assets import SUPPORTED_ASSETS
+from src.config.paths import LOGS_DIR, ensure_dir
 
-for symbol in SYMBOLS:
-    print(f"\n🚀 Training on {symbol.upper()}...\n")
 
-    data_path = f"{DATA_DIR}/{symbol}_1h.csv"
-    log_path = f"{LOG_DIR}/{symbol}.log"
-
-    # pass env variable so train.py can pick correct dataset
+ensure_dir(LOGS_DIR)
+for asset in SUPPORTED_ASSETS:
+    print(f"\n🚀 Training on {asset.upper()}...\n")
+    log_path = LOGS_DIR / f"{asset}.log"
     env = os.environ.copy()
-    env["DATA_PREFIX"] = symbol
-    env["MODEL_PATH"] = f"{MODEL_DIR}/{symbol}_model.pth"
+    env["DATA_PREFIX"] = asset
 
-    with open(log_path, "w") as f:
+    with log_path.open("w", encoding="utf-8") as handle:
         process = subprocess.Popen(
-            ["python", "-m", "src.train"],
-            stdout=f,
-            stderr=f,
-            env=env
+            ["python", "-m", "src.train", "--asset", asset],
+            stdout=handle,
+            stderr=handle,
+            env=env,
         )
         process.wait()
 
-    print(f"✅ Done {symbol.upper()} | Log saved: {log_path}")
+    print(f"✅ Done {asset.upper()} | Log saved: {log_path}")

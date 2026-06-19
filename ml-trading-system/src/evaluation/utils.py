@@ -1,13 +1,11 @@
-import numpy as np
+import csv
+from pathlib import Path
 
-def compute_market_returns(price_windows):
-    returns = []
 
-    for i in range(len(price_windows) - 1):
-        curr = price_windows[i][-1][3]
-        next_ = price_windows[i + 1][-1][3]
-
-        r = (next_ / (curr + 1e-8)) - 1
-        returns.append(r)
-
-    return np.array(returns)
+def write_trace_csv(path: Path, field_name: str, values) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["step", field_name])
+        writer.writeheader()
+        for step, value in enumerate(values):
+            writer.writerow({"step": step, field_name: value})
