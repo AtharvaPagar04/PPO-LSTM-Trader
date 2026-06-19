@@ -2,176 +2,135 @@
 
 ## Purpose
 
-This document explains the official evaluation path for the project.
+This document defines how model quality is judged in this repository. The key principle is that training may be stochastic, but the official evaluation must be deterministic, full-period, cost-aware, and baseline-relative.
 
-The key design rule is:
+## Deterministic Evaluation
 
-Training can be stochastic and episode-based, but evaluation must be deterministic and full-period.
+The official evaluation path runs the saved policy over the full held-out test split:
 
-## Why The Old Prototype Was Not Enough
+- start at test index `0`
+- use policy mean actions
+- make one sequential pass
+- apply transaction costs on exposure changes
+- record full traces and summary metrics
 
-The earlier prototype used:
+This avoids the ambiguity of episode-based prototype checks where different runs could score different slices of the test set.
 
-- random environment reset points
-- capped episodes
-- partial test slices
-
-That was acceptable for PPO data collection, but it was not appropriate as the main research evaluation method because two evaluation runs could cover different parts of the test set.
-
-## Current Evaluation Design
-
-The current evaluator:
-
-- loads the test split for one asset
-- builds the policy using the configured architecture
-- loads a saved checkpoint
-- resets the environment in `eval` mode
-- starts from the beginning of the test dataset
-- uses the policy mean action deterministically
-- runs one sequential pass through the entire held-out test period
-- records a full trace of actions, positions, rewards, costs, returns, equity, and drawdown
-
-## Baselines
-
-The evaluator runs the following baselines over the same full test period:
-
-- always long
-- always short
-- always flat
-- random policy with fixed seed
-- buy and hold
-
-All of them use the same transaction cost assumption configured for the environment.
-
-## Commands
-
-### Evaluate one asset
-
-```bash
-./venv/bin/python src/evaluate.py --asset btc_usdt
-```
-
-### Evaluate one asset with an explicit checkpoint
-
-```bash
-./venv/bin/python src/evaluate.py --asset btc_usdt --checkpoint models/btc_usdt_best.pt
-```
-
-### Evaluate all supported assets
-
-```bash
-./venv/bin/python src/evaluate.py --all
-```
-
-The same evaluation flow is also available through the CLI:
+Primary commands:
 
 ```bash
 ./venv/bin/python -m src.cli evaluate --asset btc_usdt
 ./venv/bin/python -m src.cli evaluate --all
 ```
 
-Walk-forward evaluation is also available through the CLI:
+## Walk-Forward Evaluation
+
+Walk-forward evaluation slices the held-out test block into chronological folds and evaluates the existing checkpoint on each fold.
+
+Primary commands:
 
 ```bash
 ./venv/bin/python -m src.cli evaluate --asset btc_usdt --walk-forward
-./venv/bin/python -m src.cli evaluate --all --walk-forward
-./venv/bin/python -m src.cli evaluate --asset btc_usdt --walk-forward --folds 5
-```
-
-Walk-forward baseline comparison:
-
-```bash
 ./venv/bin/python -m src.cli evaluate --asset btc_usdt --walk-forward --baselines
-./venv/bin/python -m src.cli evaluate --all --walk-forward --baselines
+./venv/bin/python -m src.cli evaluate --all --walk-forward
 ```
 
-The CLI also provides deterministic latest-window inference:
+What it measures:
 
-```bash
-./venv/bin/python -m src.cli predict --asset btc_usdt
-./venv/bin/python -m src.cli predict --all
+- return stability across time segments
+- fold-level Sharpe consistency
+- worst fold drawdown
+- how often the RL policy actually wins a fold
+
+Important limit:
+
+```text
+Walk-forward v1 does not retrain per fold.
+It evaluates the existing checkpoint across chronological held-out slices.
 ```
 
-The `predict --all` command runs latest-window deterministic inference for every supported asset using existing checkpoints and data. It does not execute trades or connect to an exchange.
+## Baseline Comparison
 
-Diagnostics are also available through the CLI:
+Each evaluation compares the RL policy against simple baselines run on the same price windows and transaction cost assumption.
+
+Static baselines:
+
+- `always_long`
+- `always_short`
+- `always_flat`
+- `random`
+- `buy_and_hold`
+
+In the current spot-style setup, `buy_and_hold` is effectively equivalent to `always_long`.
+
+## Exposure-Equivalent Baselines
+
+Static long/short comparisons alone are not enough because a policy can appear better simply by carrying the right average directional bias.
+
+This repository therefore adds exposure-equivalent baselines:
+
+- `constant_signed_mean_action`
+- `constant_abs_mean_long`
+- `constant_abs_mean_short`
+
+The most important one is `constant_signed_mean_action`:
+
+- compute the RL policy's average signed action over the evaluation period
+- hold that constant exposure for the same period
+- compare returns directly
+
+Why it matters:
+
+```text
+If the model cannot beat a constant strategy with the same average signed exposure,
+it has not proven useful timing.
+```
+
+That is the core defense against mistaking static bias for true market timing skill.
+
+## Transaction Costs
+
+Transaction costs are applied whenever the position changes. In both the environment and baseline simulator, the cost is:
+
+```text
+abs(new_position - old_position) * transaction_cost
+```
+
+Default config:
+
+```text
+transaction_cost = 0.0004
+```
+
+This matters because small predictive effects can disappear once turnover is priced realistically.
+
+## Action Diagnostics
+
+The repo includes deterministic diagnostics to inspect what the trained policy is actually doing:
 
 ```bash
 ./venv/bin/python -m src.cli diagnose --asset btc_usdt
 ./venv/bin/python -m src.cli diagnose --all
-./venv/bin/python -m src.cli diagnose --asset btc_usdt --format json
 ```
 
-### Reward Tuning Experiment
+Diagnostics track:
 
-```bash
-./venv/bin/python -m src.cli experiment reward --asset btc_usdt
-```
+- flat/long/short action ratios
+- average absolute action
+- turnover
+- policy std behavior
+- reward decomposition
+- clipping frequency
+- transaction-cost drag
 
-### PPO Std Tuning Experiment
+These metrics help separate "bad model" from "no usable signal" or "over-penalized reward."
 
-```bash
-./venv/bin/python -m src.cli experiment ppo-std --asset btc_usdt
-```
+## Key Evaluation Metrics
 
-## Output Files
-
-Per asset:
-
-```text
-logs/evaluation/{asset}/metrics.json
-logs/evaluation/{asset}/equity_curve.png
-logs/evaluation/{asset}/actions.csv
-logs/evaluation/{asset}/positions.csv
-```
-
-Cross-asset summary:
-
-```text
-logs/evaluation/summary.csv
-logs/evaluation/summary.json
-```
-
-Walk-forward outputs:
-
-```text
-logs/walk_forward/{timestamp}_{asset}/fold_metrics.csv
-logs/walk_forward/{timestamp}_{asset}/fold_metrics.json
-logs/walk_forward/{timestamp}_{asset}/aggregate_metrics.json
-logs/walk_forward/{timestamp}_{asset}/summary.txt
-logs/walk_forward/{timestamp}_all/all_assets_summary.csv
-logs/walk_forward/{timestamp}_all/all_assets_summary.json
-```
-
-Walk-forward baseline comparison outputs:
-
-```text
-logs/walk_forward/{timestamp}_{asset}_baselines/baseline_comparison.csv
-logs/walk_forward/{timestamp}_{asset}_baselines/baseline_comparison.json
-logs/walk_forward/{timestamp}_{asset}_baselines/baseline_aggregate.json
-logs/walk_forward/{timestamp}_all_baselines/all_assets_baseline_summary.csv
-logs/walk_forward/{timestamp}_all_baselines/all_assets_baseline_summary.json
-```
-
-Diagnostics outputs:
-
-```text
-logs/diagnostics/{timestamp}_{asset}/summary.json
-logs/diagnostics/{timestamp}_{asset}/actions.csv
-logs/diagnostics/{timestamp}_{asset}/reward_components.csv
-logs/diagnostics/{timestamp}_{asset}/diagnostics.txt
-logs/diagnostics/{timestamp}_all/all_assets_summary.csv
-logs/diagnostics/{timestamp}_all/all_assets_summary.json
-```
-
-## Metrics
-
-The RL policy and all baselines currently report:
+Core metrics reported by the project include:
 
 - `final_equity`
 - `total_return`
-- `period_return`
-- `annualized_return`
 - `sharpe`
 - `sortino`
 - `max_drawdown`
@@ -179,93 +138,96 @@ The RL policy and all baselines currently report:
 - `win_rate`
 - `average_position`
 - `turnover`
-- `number_of_steps`
 - `average_transaction_cost`
+- walk-forward positive fold count
+- walk-forward robustness score
 
-## Deterministic vs Training Behavior
+For experiments and supervised trading checks, additional metrics include:
 
-### Training mode
+- walk-forward balanced accuracy
+- beat counts versus exposure-equivalent baselines
+- action-side concentration and flat ratios
 
-- random episode start
-- capped episode length
-- stochastic action sampling
+## Why Final Equity Alone Is Insufficient
 
-### Evaluation mode
+Final equity is necessary but not sufficient.
 
-- start at the first test window
-- full sequential pass
-- deterministic mean action
+A strategy can show positive equity while still failing on:
 
-This separation is intentional and should be preserved.
+- risk-adjusted return
+- drawdown behavior
+- consistency across folds
+- post-cost robustness
+- exposure-equivalent baseline comparison
 
-## Walk-Forward Evaluation
+Example: a mildly positive RL result may still be unconvincing if it only reflects a persistent short bias that a constant-exposure baseline can match or beat.
 
-Walk-forward v1 splits the existing held-out test period into chronological folds and evaluates the existing trained checkpoint on each fold.
+## Current Deterministic Results
 
-The fold order is chronological:
+Official saved-checkpoint results:
 
-- no shuffling
-- no random resets
-- each fold covers one continuous slice of the test period
+| Asset | Final Equity | Sharpe | Max Drawdown |
+| --- | ---: | ---: | ---: |
+| `btc_usdt` | 1.0252 | 0.65 | 2.98% |
+| `eth_usdt` | 0.9773 | -0.42 | 8.40% |
+| `sol_usdt` | 0.8983 | -0.86 | 19.45% |
 
-The purpose is to measure whether the saved model behaves consistently across different time segments of the held-out period.
+Interpretation:
 
-This v1 implementation does not retrain per fold.
+- BTC is mildly positive, not decisive.
+- ETH is negative.
+- SOL is materially negative.
+- Cross-asset consistency is not present.
 
-It is an offline research evaluation mode only. It does not imply live trading profitability.
+## Reduced Preset Validation
 
-## Walk-Forward Baseline Comparison
+Reduced feature presets improved label-level metrics slightly but failed the trading standard that matters:
 
-The `--baselines` flag compares the PPO/LSTM policy against simple deterministic baseline strategies inside each chronological fold.
+```text
+stable_cross_asset_core_v1:
+  Best WF Balanced Accuracy: 0.5281
+  Trading WF Return: -7.54%
+  Trading WF Sharpe: -2.10
+  Beat Constant Signed Mean: 0/5
 
-The comparison currently includes:
+stable_cross_asset_core_v2:
+  Best WF Balanced Accuracy: 0.5272
+  Trading WF Return: -7.83%
+  Trading WF Sharpe: -2.18
+  Beat Constant Signed Mean: 0/5
+```
 
-- `always_long`
-- `always_short`
-- `always_flat`
-- `random`
+This is the clearest example of why label metrics alone are not enough. Balanced accuracy moved slightly above random, but the strategies still failed post-cost trading validation and never beat `constant_signed_mean_action`.
 
-`buy_and_hold` is also computed in detailed traces, but in the current spot-style setup it is equivalent to `always_long`, so it is excluded from rankings and aggregate win counts.
+## Output Locations
 
-This mode is intended to answer a narrow research question:
+Deterministic evaluation:
 
-Does the saved PPO/LSTM checkpoint outperform simple baseline strategies across different chronological segments of the held-out test period?
+```text
+logs/evaluation/{asset}/metrics.json
+logs/evaluation/{asset}/equity_curve.png
+logs/evaluation/{asset}/actions.csv
+logs/evaluation/{asset}/positions.csv
+logs/evaluation/summary.csv
+logs/evaluation/summary.json
+```
 
-Baseline comparison is an offline research diagnostic. It does not execute trades and should not be interpreted as evidence of live trading profitability.
+Walk-forward:
 
-## 1h Model Diagnostics
+```text
+logs/walk_forward/{timestamp}_{asset}/
+logs/walk_forward/{timestamp}_{asset}_baselines/
+logs/walk_forward/{timestamp}_all/
+logs/walk_forward/{timestamp}_all_baselines/
+```
 
-The `diagnose` command measures what the trained 1h PPO/LSTM policy is doing during deterministic offline evaluation.
+Diagnostics:
 
-It reports:
+```text
+logs/diagnostics/{timestamp}_{asset}/
+logs/diagnostics/{timestamp}_all/
+```
 
-- action distribution and neutrality ratios
-- average exposure and turnover
-- policy standard deviation behavior
-- value estimate range
-- reward decomposition into net PnL, transaction cost, drawdown penalty, position penalty, and action-change penalty
-- reward clipping frequency
+## Evaluation Summary
 
-This mode is useful before any reward tuning or PPO hyperparameter changes, because it shows whether the current policy is inactive, over-penalized, or operating with persistently high uncertainty.
-
-Current diagnostic evidence on the saved checkpoints shows:
-
-- the policy is mostly flat on all three assets
-- policy std is effectively constant at `0.8187`
-- cumulative penalty terms are materially larger than final net PnL
-
-Diagnostics are offline model behavior measurements. They do not retrain the model, do not modify the reward function, and do not imply live trading profitability.
-
-## Known Limitations
-
-- The baseline family is still simple.
-- The evaluator assumes a single fixed transaction cost model.
-- Results remain checkpoint-dependent.
-- Walk-forward v1 evaluates existing checkpoints only.
-- Walk-forward v1 does not retrain per fold.
-- Walk-forward baseline comparison v1 evaluates existing checkpoints only.
-- Walk-forward baseline comparison does not retrain per fold.
-- Diagnostics evaluate existing checkpoints only.
-- Diagnostics are implemented for the current 1h model only.
-- CLI evaluation is still offline model evaluation only; it does not connect to exchanges or place trades.
-- CLI prediction outputs are experimental model signals only and should not be interpreted as financial advice or execution instructions.
+The evaluation framework is one of the successful parts of the project. It makes weak strategies harder to overclaim. The final judgment is negative not because the evaluation is missing, but because the current strategy does not pass it.

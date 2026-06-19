@@ -1,177 +1,219 @@
 # Architecture
 
-## Overview
+## System Overview
 
-This repository implements an offline RL trading research pipeline for hourly crypto time series.
+This repository implements an offline research pipeline for continuous crypto position sizing on 1h data. The project turns raw market data into rolling feature windows, trains an LSTM actor-critic policy with PPO, and evaluates saved checkpoints with deterministic backtests and walk-forward diagnostics.
 
-The high-level flow is:
+High-level flow:
 
 ```text
-Binance OHLCV
-    ->
-raw CSV files
-    ->
-feature engineering
-    ->
-rolling train/test datasets
-    ->
-TradingEnv
-    ->
-LSTM actor-critic policy
-    ->
-PPO training
-    ->
-deterministic full-period evaluation
-    ->
-metrics, traces, and plots
+raw OHLCV CSV
+  -> feature engineering
+  -> rolling windows + scaling
+  -> TradingEnv
+  -> LSTMPolicy
+  -> PPO training
+  -> deterministic evaluation
+  -> walk-forward and diagnostic analysis
 ```
 
-## Core Modules
+## Directory Structure
 
-### `src/config/`
+```text
+configs/
+  Static configuration, reward presets, PPO std presets, feature presets.
 
-Centralized configuration and naming:
+docs/
+  Project documentation and closure record.
 
-- `assets.py`
-  Canonical asset registry and normalization helpers.
-- `paths.py`
-  Shared filesystem paths and artifact resolution with legacy filename fallback.
-- `settings.py`
-  Config loader for `configs/*.yaml`.
+src/
+  Main application code.
 
-This is the layer that removes hardcoded asset strings from the rest of the repo.
+tests/
+  Focused regression coverage for environment, evaluation, CLI, and experiments.
+```
 
-### `src/data/`
+Key source modules:
 
-- `fetch_data.py`
-  Downloads hourly Binance candles for a selected asset and saves them under the canonical asset name.
-- `dataset.py`
-  Loads processed train/test arrays, metadata, and scalers from disk.
+```text
+src/
+├── cli.py
+├── train.py
+├── train_multi.py
+├── evaluate.py
+├── inference.py
+├── config/
+├── data/
+├── env/
+├── evaluation/
+├── experiments/
+├── features/
+├── models/
+├── ppo/
+└── utils/
+```
 
-### `src/features/`
+## Data Flow
 
-- `pipeline.py`
-  Main preprocessing implementation.
-- `feature_engineering.py`
-  CLI entrypoint for one asset.
-- `process_multi.py`
-  Multi-asset preprocessing runner.
+The data path is implemented around processed rolling windows rather than online candles:
 
-The preprocessing pipeline:
+1. Raw CSV files are resolved per asset through `src.config.paths`.
+2. `src.features.pipeline` loads and cleans OHLCV data.
+3. Feature engineering creates technical, regime, and optional cross-asset features.
+4. `create_windows()` converts feature rows and price rows into aligned rolling windows.
+5. Windows are split chronologically into train and test sets.
+6. `StandardScaler` is fit on train windows only and applied to both splits.
+7. Processed arrays, scaler artifacts, and metadata are stored under `data/processed/`.
 
-1. Loads raw candles.
-2. Sorts by timestamp.
-3. Engineers 10 features.
-4. Builds rolling windows of size `20`.
-5. Splits into `80/20` train/test.
-6. Fits `StandardScaler` on train features only.
-7. Saves canonical processed artifacts.
+The metadata records feature names, split ratio, window size, and timestamp boundaries so training and evaluation use the same processed layout.
 
-### `src/env/`
+## Feature Pipeline
 
-- `trading_env.py`
+Default base features include:
 
-`TradingEnv` supports two distinct modes:
+- `log_return`
+- `volatility_10`
+- `volatility_20`
+- `momentum_5`
+- `momentum_10`
+- `trend`
+- `rsi`
+- `body_ratio`
+- `range_pct`
+- `vol_z`
 
-- `mode="train"`
-  random episode starts with capped length
-- `mode="eval"`
-  deterministic start at the beginning of the test split with no random reset
+The pipeline also supports:
 
-The environment is still a continuous-position simulator rather than an order-book or execution engine.
+- regime features such as `return_24`, `return_72`, `volatility_regime`, `trend_strength_24`
+- cross-asset features such as `eth_return_24`, `sol_return_72`, `market_avg_return_24`, `btc_relative_strength_24`
+
+Cross-asset features are computed only when a selected preset requires them. ETH and SOL raw data must be available for those presets.
+
+## Environment Design
+
+`src.env.trading_env.TradingEnv` is a continuous-position simulator, not an execution engine.
 
 State:
 
-- one `[window_size, num_features]` feature window
+- one scaled feature window with shape `[window_size, num_features]`
 
 Action:
 
-- continuous scalar in `[-1, 1]`
+- one continuous scalar clipped to `[-1.0, 1.0]`
 
-Reward:
+Position semantics:
+
+```text
+-1.0 = fully short
+ 0.0 = flat
++1.0 = fully long
+```
+
+Training behavior:
+
+- random episode starts when enough data exists
+- capped episode length from config
+- stochastic policy sampling
+
+Evaluation behavior:
+
+- deterministic reset at test index `0`
+- full sequential pass through the held-out split
+- policy mean action only
+
+Reward components are computed in `step()` from:
 
 - log-return PnL
-- transaction cost
+- transaction cost on position change
 - drawdown penalty
 - position penalty
 - action-change penalty
-- clipping
+- optional exposure, turnover, directional, and volatility-exposure terms
+- reward scaling and clipping
 
-### `src/models/`
+The environment also exposes detailed reward components in `info` for diagnostics.
 
-- `lstm_encoder.py`
-- `actor.py`
-- `critic.py`
-- `policy.py`
+## Model Architecture
 
-The model is now structured as modular components while preserving the original shared LSTM actor-critic idea.
+The implemented policy is `src.models.policy.LSTMPolicy`.
 
 Architecture:
 
-- 2-layer LSTM encoder
-- shared MLP trunk
-- actor mean head
-- actor std head
-- critic value head
+1. `LSTMEncoder`
+2. shared MLP trunk
+3. `ActorHead`
+4. `CriticHead`
 
-### `src/ppo/`
+Concrete structure:
 
-- `ppo_trainer.py`
-- `losses.py`
-- `rollout_buffer.py`
+- LSTM encoder with configurable hidden size, layer count, and dropout
+- shared MLP: `Linear(hidden_dim, 128) -> ReLU -> Linear(128, 128) -> ReLU`
+- actor mean head with `tanh` output
+- actor std head with bounded log-std
+- critic head with scalar value output
 
-These modules now separate:
+The actor supports two std parameterizations:
 
-- rollout collection
-- GAE computation
-- clipped PPO losses
-- advantage normalization
-- gradient-clipped optimization
+- `hard_clamp`
+- `smooth_bound`
 
-### `src/evaluation/`
+## PPO Training Loop
 
-- `backtest.py`
-  Deterministic policy backtest over the full held-out period.
-- `baselines.py`
-  Deterministic baseline simulations using the same test period and transaction cost assumption.
-- `metrics.py`
-  Performance metric calculations.
-- `plot.py`
-  Equity curve plotting.
-- `benchmark.py`
-  Official evaluation orchestration and output writing.
+Training is orchestrated by `src.train.train_asset()` and `src.ppo.PPOTrainer`.
 
-This is the main reliability upgrade over the prototype.
+Loop outline:
 
-## Training vs Evaluation Behavior
+1. Build processed dataset and train environment.
+2. Build `LSTMPolicy`.
+3. Collect rollouts with sampled Gaussian actions.
+4. Compute GAE advantages and returns.
+5. Normalize advantages.
+6. Optimize PPO losses across minibatches and epochs.
+7. Track update diagnostics such as KL, clip fraction, actor/critic gradients, and policy std.
+8. Save best and final checkpoints plus run artifacts.
 
-### Training
+Loss terms include:
 
-Training remains PPO-friendly:
+- clipped policy loss
+- clipped value loss
+- entropy bonus
+- std stability penalty
 
-- randomized start index
-- capped episode length
-- stochastic action sampling from `Normal(mean, std)`
+## CLI Entrypoints
 
-This preserves the core research idea and the original optimization behavior.
+Main public entrypoint:
 
-### Evaluation
+```bash
+./venv/bin/python -m src.cli <command>
+```
 
-Evaluation is now explicitly different:
+Important commands:
 
-- starts at the beginning of the test dataset
-- uses policy mean actions
-- runs one sequential pass through the full test period
-- records full action/position/equity traces
-- saves structured artifacts
+- `train`
+- `evaluate`
+- `diagnose`
+- `predict`
+- `experiment reward`
+- `experiment ppo-std`
+- `experiment training-signal`
+- `experiment feature-ablation`
+- `experiment seed-validation`
+- `experiment objective-calibration`
+- `experiment signal-audit`
+- `experiment target-audit`
+- `experiment feature-signal-audit`
+- `experiment supervised-signal-strategy`
 
-This separation is critical for reproducibility.
+Supporting scripts:
 
-## Artifact Layout
+- `src/train.py`
+- `src/evaluate.py`
+- `src/inference.py`
+- `src/train_multi.py`
 
-### Processed data
+## Artifact and Log Structure
 
-Canonical naming:
+Processed data:
 
 ```text
 data/processed/{asset}_train_windows.npy
@@ -182,55 +224,51 @@ data/processed/{asset}_scaler.pkl
 data/processed/{asset}_meta.json
 ```
 
-### Checkpoints
-
-Canonical naming for new runs:
+Checkpoints:
 
 ```text
 models/{asset}_best.pt
 models/{asset}_final.pt
+models/{asset}_model.pth
+models/{asset}_model_final.pth
 ```
 
-Legacy checkpoints are still resolved automatically for backward compatibility.
-
-### Evaluation outputs
+Standalone evaluation:
 
 ```text
-logs/evaluation/{asset}/metrics.json
-logs/evaluation/{asset}/equity_curve.png
-logs/evaluation/{asset}/actions.csv
-logs/evaluation/{asset}/positions.csv
+logs/evaluation/{asset}/
 logs/evaluation/summary.csv
 logs/evaluation/summary.json
 ```
 
-### Training run outputs
+Training runs:
 
 ```text
 logs/runs/{timestamp}_{asset}/
-├── run_config.json
-├── metrics.json
-├── training_log.csv
-├── evaluation_metrics.json
-├── equity_curve.png
-└── evaluation/
 ```
 
-## Reliability Improvements Introduced
+Diagnostics:
 
-- canonical asset registry with legacy normalization
-- deterministic full-period evaluation
-- official standalone evaluation CLI
-- structured config files
-- structured run metadata and outputs
-- modularized PPO utilities
-- modularized actor/critic/encoder implementation
-- focused test coverage for critical logic
+```text
+logs/diagnostics/{timestamp}_{asset}/
+logs/diagnostics/{timestamp}_all/
+```
 
-## Remaining Gaps
+Walk-forward outputs:
 
-- no walk-forward validation
-- no repeated-seed experiment aggregation
-- no hyperparameter sweep tooling
-- no stronger benchmark family beyond simple positional baselines
-- still not intended for production trading
+```text
+logs/walk_forward/{timestamp}_{asset}/
+logs/walk_forward/{timestamp}_{asset}_baselines/
+logs/walk_forward/{timestamp}_all/
+logs/walk_forward/{timestamp}_all_baselines/
+```
+
+Experiment outputs:
+
+```text
+logs/experiments/<experiment_type>/{timestamp}_{asset}/
+```
+
+## Design Summary
+
+The repo is strongest as a research framework because the pipeline is explicit end to end: features, environment, model, PPO updates, evaluation, baselines, and diagnostics all exist as separate modules. The main limitation is not missing architecture, but weak tradable signal in the current 1h feature set.
